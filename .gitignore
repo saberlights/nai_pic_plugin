@@ -1,0 +1,19 @@
+# 配置文件
+config.toml
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# 生成的图片
+generated_images/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.claude/

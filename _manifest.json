@@ -1,0 +1,67 @@
+{
+  "manifest_version": 1,
+  "name": "NovelAI Web 图片生成插件（nai_pic_plugin）",
+  "version": "1.0.0",
+  "description": "专用于 NovelAI Web API（如 std.loliyc.com）的图片生成插件。支持 NAI 格式提示词（大括号权重），仅支持文生图功能。适合使用 NovelAI 网页代理接口的用户。",
+  "author": {
+    "name": "Rabbit",
+    "url": "https://github.com/Rabbit-Jia-Er"
+  },
+  "license": "GPL-v3.0-or-later",
+  "host_application": {
+    "min_version": "0.10.0"
+  },
+  "homepage_url": "https://github.com/Rabbit-Jia-Er/nai_pic_plugin",
+  "repository_url": "https://github.com/Rabbit-Jia-Er/nai_pic_plugin",
+  "keywords": [
+    "draw",
+    "novelai",
+    "nai",
+    "ai",
+    "image"
+  ],
+  "categories": [
+    "Expression",
+    "Picture"
+  ],
+  "default_locale": "zh-CN",
+  "plugin_info": {
+    "is_built_in": false,
+    "plugin_type": "image_generator",
+    "components": [
+      {
+        "type": "action",
+        "name": "nai_web_draw",
+        "description": "NovelAI Web 图片生成（仅文生图）",
+        "activation_modes": [
+          "keyword",
+          "llm_judge"
+        ],
+        "keywords": [
+          "画",
+          "绘制",
+          "生成图片",
+          "画图",
+          "nai画",
+          "novelai画"
+        ]
+      },
+      {
+        "type": "command",
+        "name": "nai_recall_control_command",
+        "description": "NAI自动撤回控制命令：/nai <on|off>",
+        "command_pattern": "/nai (on|off)"
+      }
+    ],
+    "features": [
+      "NovelAI Web API 支持",
+      "NAI 格式提示词（大括号权重）",
+      "文生图功能",
+      "支持多种采样器",
+      "支持自定义尺寸",
+      "代理支持",
+      "自动撤回功能"
+    ]
+  },
+  "id": "Rabbit.nai_pic_plugin"
+}
