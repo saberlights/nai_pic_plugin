@@ -328,11 +328,46 @@ class NaiDrawCommand(AutoRecallMixin, BaseCommand):
                 # 创建配置副本并覆盖模型
                 model_config = dict(model_config)
                 model_config["model"] = selected_model
+
+                # 根据模型名称加载对应的提示词配置
+                model_specific_config = self._get_model_specific_config(selected_model)
+                if model_specific_config:
+                    # 用模型特定配置覆盖默认配置中的提示词部分
+                    model_config.update(model_specific_config)
+                    logger.info(f"{self.log_prefix} 使用模型特定配置: {selected_model}")
+
                 logger.info(f"{self.log_prefix} 使用选定的模型: {selected_model}")
         except Exception as e:
             logger.error(f"{self.log_prefix} 获取选定模型时出错: {e}", exc_info=True)
 
         return model_config
+
+    def _get_model_specific_config(self, model_name: str) -> Optional[Dict[str, Any]]:
+        """根据模型名称获取特定配置"""
+        if not model_name:
+            return None
+
+        # NAI V3 系列（包括 nai-diffusion-3 和 nai-diffusion-3-furry）
+        if model_name.startswith("nai-diffusion-3"):
+            nai3_config = self.get_config("model_nai3", {})
+            if nai3_config:
+                return {
+                    "nai_artist_prompt": nai3_config.get("nai_artist_prompt", ""),
+                    "custom_prompt_add": nai3_config.get("custom_prompt_add", ""),
+                    "negative_prompt_add": nai3_config.get("negative_prompt_add", "")
+                }
+
+        # NAI V4 系列（nai-diffusion-4-* 系列）
+        elif model_name.startswith("nai-diffusion-4"):
+            nai4_config = self.get_config("model_nai4", {})
+            if nai4_config:
+                return {
+                    "nai_artist_prompt": nai4_config.get("nai_artist_prompt", ""),
+                    "custom_prompt_add": nai4_config.get("custom_prompt_add", ""),
+                    "negative_prompt_add": nai4_config.get("negative_prompt_add", "")
+                }
+
+        return None
 
     def _process_api_response(self, result: str) -> Optional[str]:
         """处理 API 响应"""

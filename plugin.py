@@ -28,6 +28,8 @@ class NaiPicPlugin(BasePlugin):
     config_section_descriptions = {
         "plugin": "插件基本配置",
         "model": "NovelAI Web 模型配置",
+        "model_nai3": "NovelAI V3 模型专用配置（nai-diffusion-3 和 nai-diffusion-3-furry 共用）",
+        "model_nai4": "NovelAI V4 模型专用配置（nai-diffusion-4-* 系列）",
         "components": "组件配置",
         "auto_recall": "自动撤回配置",
         "admin": "管理员权限配置",
@@ -149,6 +151,40 @@ class NaiPicPlugin(BasePlugin):
                 default={},
                 description="额外的URL查询参数"
             ),
+        },
+        "model_nai3": {
+            "nai_artist_prompt": ConfigField(
+                type=str,
+                default="",
+                description="NAI V3 专用画师风格提示词（可选）"
+            ),
+            "custom_prompt_add": ConfigField(
+                type=str,
+                default="",
+                description="NAI V3 专用自动添加的提示词后缀"
+            ),
+            "negative_prompt_add": ConfigField(
+                type=str,
+                default="",
+                description="NAI V3 专用负面提示词"
+            )
+        },
+        "model_nai4": {
+            "nai_artist_prompt": ConfigField(
+                type=str,
+                default="",
+                description="NAI V4 专用画师风格提示词（可选）"
+            ),
+            "custom_prompt_add": ConfigField(
+                type=str,
+                default="",
+                description="NAI V4 专用自动添加的提示词后缀"
+            ),
+            "negative_prompt_add": ConfigField(
+                type=str,
+                default="",
+                description="NAI V4 专用负面提示词"
+            )
         },
         "components": {
             "enable_debug_info": ConfigField(
