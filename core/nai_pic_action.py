@@ -285,11 +285,48 @@ class NaiPicAction(AutoRecallMixin, BaseAction):
             return False, f"生成失败: {result}"
 
     def _get_model_config(self) -> Dict[str, Any]:
-        """获取模型配置"""
-        model_config = self.get_config("model", {})
-        if not model_config:
+        """获取模型配置，根据模型名称自动合并对应版本的配置"""
+        base_config = self.get_config("model", {})
+        if not base_config:
             logger.error(f"{self.log_prefix} 模型配置读取失败")
-        return model_config or {}
+            return {}
+
+        # 获取模型名称
+        model_name = base_config.get("model", "")
+
+        # 根据模型名称确定使用哪个版本的配置
+        version_config = {}
+        if model_name:
+            if "nai-diffusion-3" in model_name:
+                # NAI V3 模型
+                version_config = self.get_config("model_nai3", {})
+                logger.info(f"{self.log_prefix} 检测到 NAI V3 模型，使用 model_nai3 配置")
+            elif "nai-diffusion-4-5" in model_name:
+                # NAI V4.5 模型（优先级高于 V4）
+                version_config = self.get_config("model_nai4_5", {})
+                logger.info(f"{self.log_prefix} 检测到 NAI V4.5 模型，使用 model_nai4_5 配置")
+            elif "nai-diffusion-4" in model_name:
+                # NAI V4 模型
+                version_config = self.get_config("model_nai4", {})
+                logger.info(f"{self.log_prefix} 检测到 NAI V4 模型，使用 model_nai4 配置")
+
+        # 合并配置：base_config 作为基础，version_config 覆盖
+        merged_config = base_config.copy()
+        if version_config:
+            # 合并所有配置项，version_config 中的值优先
+            for key, value in version_config.items():
+                if key == "nai_extra_params":
+                    # 特殊处理 nai_extra_params，合并而不是覆盖
+                    base_extra = merged_config.get("nai_extra_params", {})
+                    version_extra = value or {}
+                    merged_extra = base_extra.copy()
+                    merged_extra.update(version_extra)
+                    merged_config["nai_extra_params"] = merged_extra
+                else:
+                    # 其他配置项直接覆盖
+                    merged_config[key] = value
+
+        return merged_config
 
     def _process_api_response(self, result: str) -> Optional[str]:
         """处理API响应，返回base64或URL"""

@@ -54,15 +54,14 @@ class NaiAdminControlCommand(BaseCommand):
 
         current_chat_key = f"{platform}:{chat_id}"
 
-        # set 命令不需要管理员权限
-        if action == "set":
-            return await self._handle_set_model(current_chat_key, param)
-
-        # st/sp 命令需要管理员权限
+        # st/sp/set 命令都需要管理员权限
         is_admin = self._check_admin_permission()
         if not is_admin:
             await self.send_text("❌ 你没有权限使用此命令", storage_message=False)
             return False, "没有管理员权限", True
+
+        if action == "set":
+            return await self._handle_set_model(current_chat_key, param)
 
         if action == "st":
             # 开启管理员模式

@@ -28,8 +28,9 @@ class NaiPicPlugin(BasePlugin):
     config_section_descriptions = {
         "plugin": "插件基本配置",
         "model": "NovelAI Web 模型配置",
-        "model_nai3": "NovelAI V3 模型专用配置（nai-diffusion-3 和 nai-diffusion-3-furry 共用）",
-        "model_nai4": "NovelAI V4 模型专用配置（nai-diffusion-4-* 系列）",
+        "model_nai3": "NovelAI V3 模型专用配置（nai-diffusion-3 和 nai-diffusion-3-furry）",
+        "model_nai4": "NovelAI V4 模型专用配置（nai-diffusion-4-curated、nai-diffusion-4-full 等）",
+        "model_nai4_5": "NovelAI V4.5 模型专用配置（nai-diffusion-4-5-full 等最新模型）",
         "components": "组件配置",
         "auto_recall": "自动撤回配置",
         "admin": "管理员权限配置",
@@ -158,6 +159,46 @@ class NaiPicPlugin(BasePlugin):
                 default="",
                 description="NAI V3 专用画师风格提示词（可选）"
             ),
+            "nai_size": ConfigField(
+                type=str,
+                default="竖图",
+                description="NAI V3 专用图片尺寸"
+            ),
+            "nai_cfg": ConfigField(
+                type=float,
+                default=0.0,
+                description="NAI V3 专用CFG参数"
+            ),
+            "nai_noise_schedule": ConfigField(
+                type=str,
+                default="karras",
+                description="NAI V3 专用噪声调度器"
+            ),
+            "nai_nocache": ConfigField(
+                type=int,
+                default=0,
+                description="NAI V3 专用缓存设置"
+            ),
+            "sampler": ConfigField(
+                type=str,
+                default="k_euler_ancestral",
+                description="NAI V3 专用采样器"
+            ),
+            "num_inference_steps": ConfigField(
+                type=int,
+                default=28,
+                description="NAI V3 专用推理步数"
+            ),
+            "guidance_scale": ConfigField(
+                type=float,
+                default=5.0,
+                description="NAI V3 专用指导强度"
+            ),
+            "default_size": ConfigField(
+                type=str,
+                default="1024x1280",
+                description="NAI V3 专用默认尺寸"
+            ),
             "custom_prompt_add": ConfigField(
                 type=str,
                 default="",
@@ -167,6 +208,16 @@ class NaiPicPlugin(BasePlugin):
                 type=str,
                 default="",
                 description="NAI V3 专用负面提示词"
+            ),
+            "selfie_prompt_add": ConfigField(
+                type=str,
+                default="",
+                description="NAI V3 专用自拍模式提示词"
+            ),
+            "nai_extra_params": ConfigField(
+                type=dict,
+                default={},
+                description="NAI V3 专用额外参数"
             )
         },
         "model_nai4": {
@@ -174,6 +225,46 @@ class NaiPicPlugin(BasePlugin):
                 type=str,
                 default="",
                 description="NAI V4 专用画师风格提示词（可选）"
+            ),
+            "nai_size": ConfigField(
+                type=str,
+                default="竖图",
+                description="NAI V4 专用图片尺寸"
+            ),
+            "nai_cfg": ConfigField(
+                type=float,
+                default=0.0,
+                description="NAI V4 专用CFG参数"
+            ),
+            "nai_noise_schedule": ConfigField(
+                type=str,
+                default="karras",
+                description="NAI V4 专用噪声调度器"
+            ),
+            "nai_nocache": ConfigField(
+                type=int,
+                default=0,
+                description="NAI V4 专用缓存设置"
+            ),
+            "sampler": ConfigField(
+                type=str,
+                default="k_euler_ancestral",
+                description="NAI V4 专用采样器"
+            ),
+            "num_inference_steps": ConfigField(
+                type=int,
+                default=28,
+                description="NAI V4 专用推理步数"
+            ),
+            "guidance_scale": ConfigField(
+                type=float,
+                default=5.0,
+                description="NAI V4 专用指导强度"
+            ),
+            "default_size": ConfigField(
+                type=str,
+                default="1024x1280",
+                description="NAI V4 专用默认尺寸"
             ),
             "custom_prompt_add": ConfigField(
                 type=str,
@@ -184,6 +275,83 @@ class NaiPicPlugin(BasePlugin):
                 type=str,
                 default="",
                 description="NAI V4 专用负面提示词"
+            ),
+            "selfie_prompt_add": ConfigField(
+                type=str,
+                default="",
+                description="NAI V4 专用自拍模式提示词"
+            ),
+            "nai_extra_params": ConfigField(
+                type=dict,
+                default={},
+                description="NAI V4 专用额外参数"
+            )
+        },
+        "model_nai4_5": {
+            "nai_artist_prompt": ConfigField(
+                type=str,
+                default="",
+                description="NAI V4.5 专用画师风格提示词（可选）"
+            ),
+            "nai_size": ConfigField(
+                type=str,
+                default="竖图",
+                description="NAI V4.5 专用图片尺寸"
+            ),
+            "nai_cfg": ConfigField(
+                type=float,
+                default=0.0,
+                description="NAI V4.5 专用CFG参数"
+            ),
+            "nai_noise_schedule": ConfigField(
+                type=str,
+                default="karras",
+                description="NAI V4.5 专用噪声调度器"
+            ),
+            "nai_nocache": ConfigField(
+                type=int,
+                default=0,
+                description="NAI V4.5 专用缓存设置"
+            ),
+            "sampler": ConfigField(
+                type=str,
+                default="k_euler_ancestral",
+                description="NAI V4.5 专用采样器"
+            ),
+            "num_inference_steps": ConfigField(
+                type=int,
+                default=28,
+                description="NAI V4.5 专用推理步数"
+            ),
+            "guidance_scale": ConfigField(
+                type=float,
+                default=5.0,
+                description="NAI V4.5 专用指导强度"
+            ),
+            "default_size": ConfigField(
+                type=str,
+                default="1024x1280",
+                description="NAI V4.5 专用默认尺寸"
+            ),
+            "custom_prompt_add": ConfigField(
+                type=str,
+                default="",
+                description="NAI V4.5 专用自动添加的提示词后缀"
+            ),
+            "negative_prompt_add": ConfigField(
+                type=str,
+                default="",
+                description="NAI V4.5 专用负面提示词"
+            ),
+            "selfie_prompt_add": ConfigField(
+                type=str,
+                default="",
+                description="NAI V4.5 专用自拍模式提示词"
+            ),
+            "nai_extra_params": ConfigField(
+                type=dict,
+                default={},
+                description="NAI V4.5 专用额外参数"
             )
         },
         "components": {
