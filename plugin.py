@@ -8,6 +8,7 @@ from src.plugin_system.base.config_types import ConfigField
 from .core.nai_pic_action import NaiPicAction
 from .core.nai_recall_command import NaiRecallControlCommand
 from .core.nai_draw_command import NaiDrawCommand
+from .core.nai_admin_command import NaiAdminControlCommand
 
 
 @register_plugin
@@ -29,6 +30,7 @@ class NaiPicPlugin(BasePlugin):
         "model": "NovelAI Web 模型配置",
         "components": "组件配置",
         "auto_recall": "自动撤回配置",
+        "admin": "管理员权限配置",
         "prompt_generator": "提示词生成配置",
         "prompt_fallback": "提示词生成配置（兼容旧配置名）",
     }
@@ -177,6 +179,18 @@ class NaiPicPlugin(BasePlugin):
                 description="允许使用自动撤回功能的会话白名单（格式：platform:chat_id）"
             )
         },
+        "admin": {
+            "admin_users": ConfigField(
+                type=list,
+                default=[],
+                description="管理员用户ID列表（字符串格式），管理员可以使用 /nai st/sp 命令控制管理员模式"
+            ),
+            "default_admin_mode": ConfigField(
+                type=bool,
+                default=False,
+                description="是否默认启用管理员模式（开启后仅管理员可使用 /nai 生图命令）"
+            )
+        },
         "prompt_generator": {
             "model_name": ConfigField(
                 type=str,
@@ -228,5 +242,6 @@ class NaiPicPlugin(BasePlugin):
         components = []
         components.append((NaiPicAction.get_action_info(), NaiPicAction))
         components.append((NaiRecallControlCommand.get_command_info(), NaiRecallControlCommand))
+        components.append((NaiAdminControlCommand.get_command_info(), NaiAdminControlCommand))
         components.append((NaiDrawCommand.get_command_info(), NaiDrawCommand))
         return components

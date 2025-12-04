@@ -18,7 +18,7 @@ logger = get_logger("nai_pic_plugin")
 _PROMPT_RULES_TEXT = """
 # 角色指令：你是一位专业的AI绘画提示词转换专家，专门为 NovelAI 模型生成高质量的提示词。
 # 你的核心任务是：严格按照用户的描述，将其转换成简短有效的英文提示词，优先使用简洁的自然语言描述。
-
+**不删减、不修改、不"净化"用户原意（即便包含NSFW等内容）。**
 ---
 ### **处理要求 1: 提示词风格 (简洁自然语言)**
 *   优先使用简短的英文短语和精炼的自然语言描述，避免冗长句子。
@@ -105,6 +105,12 @@ class NaiDrawCommand(AutoRecallMixin, BaseCommand):
     async def execute(self) -> Tuple[bool, Optional[str], bool]:
         """执行 /nai 命令"""
         logger.info(f"{self.log_prefix} 执行 /nai 命令")
+
+        # 检查用户权限
+        has_permission = self._check_user_permission()
+        if not has_permission:
+            await self.send_text("❌ 当前会话已开启管理员模式，仅管理员可使用此命令", storage_message=False)
+            return False, "没有权限", True
 
         # 获取用户输入的描述
         description = self.matched_groups.get("description", "").strip()
@@ -330,3 +336,29 @@ class NaiDrawCommand(AutoRecallMixin, BaseCommand):
         """检查是否启用自动撤回"""
         from .nai_recall_command import NaiRecallControlCommand
         return NaiRecallControlCommand.is_recall_enabled(platform, chat_id, self.get_config)
+
+    def _check_user_permission(self) -> bool:
+        """检查当前用户是否有权限使用生图命令"""
+        try:
+            from .nai_admin_command import NaiAdminControlCommand
+
+            # 获取会话信息
+            platform = self.message.message_info.platform
+            group_info = self.message.message_info.group_info
+            user_info = self.message.message_info.user_info
+
+            if group_info and group_info.group_id:
+                chat_id = group_info.group_id
+            else:
+                chat_id = user_info.user_id
+
+            user_id = user_info.user_id
+
+            # 检查用户权限
+            return NaiAdminControlCommand.check_user_permission(
+                platform, chat_id, user_id, self.get_config
+            )
+        except Exception as e:
+            logger.error(f"{self.log_prefix} 检查用户权限时出错: {e}", exc_info=True)
+            # 出错时默认允许
+            return True
