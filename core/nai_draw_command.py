@@ -305,7 +305,34 @@ class NaiDrawCommand(AutoRecallMixin, BaseCommand):
     def _get_model_config(self) -> Dict[str, Any]:
         """获取模型配置"""
         model_config = self.get_config("model", {})
-        return model_config or {}
+        if not model_config:
+            return {}
+
+        # 检查是否有用户选定的模型
+        try:
+            from .nai_admin_command import NaiAdminControlCommand
+
+            platform = self.message.message_info.platform
+            group_info = self.message.message_info.group_info
+
+            if group_info and group_info.group_id:
+                chat_id = group_info.group_id
+            else:
+                chat_id = self.message.message_info.user_info.user_id
+
+            selected_model = NaiAdminControlCommand.get_selected_model(
+                platform, chat_id, self.get_config
+            )
+
+            if selected_model:
+                # 创建配置副本并覆盖模型
+                model_config = dict(model_config)
+                model_config["model"] = selected_model
+                logger.info(f"{self.log_prefix} 使用选定的模型: {selected_model}")
+        except Exception as e:
+            logger.error(f"{self.log_prefix} 获取选定模型时出错: {e}", exc_info=True)
+
+        return model_config
 
     def _process_api_response(self, result: str) -> Optional[str]:
         """处理 API 响应"""

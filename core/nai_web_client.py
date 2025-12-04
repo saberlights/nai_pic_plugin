@@ -1,8 +1,12 @@
 import base64
 import requests
+import urllib3
 from typing import Dict, Any, Tuple, Optional
 
 from src.common.logger import get_logger
+
+# 禁用 SSL 警告
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 logger = get_logger("nai_pic_plugin")
 
@@ -88,7 +92,8 @@ class NaiWebClient:
             request_kwargs = {
                 "url": url,
                 "params": params,
-                "timeout": 120
+                "timeout": 120,
+                "verify": False  # 禁用 SSL 证书验证
             }
 
             logger.info(f"{self.log_prefix} (NaiWeb) 请求URL: {url}")
