@@ -8,6 +8,7 @@ from src.plugin_system.base.config_types import ConfigField
 from .core.nai_pic_action import NaiPicAction
 from .core.nai_recall_command import NaiRecallControlCommand
 from .core.nai_draw_command import NaiDrawCommand
+from .core.nai_0_draw_command import Nai0DrawCommand
 from .core.nai_admin_command import NaiAdminControlCommand
 
 
@@ -448,4 +449,5 @@ class NaiPicPlugin(BasePlugin):
         components.append((NaiRecallControlCommand.get_command_info(), NaiRecallControlCommand))
         components.append((NaiAdminControlCommand.get_command_info(), NaiAdminControlCommand))
         components.append((NaiDrawCommand.get_command_info(), NaiDrawCommand))
+        components.append((Nai0DrawCommand.get_command_info(), Nai0DrawCommand))
         return components

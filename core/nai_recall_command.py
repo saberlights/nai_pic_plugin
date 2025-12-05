@@ -24,6 +24,12 @@ class NaiRecallControlCommand(BaseCommand):
         # 获取匹配的参数
         action = self.matched_groups.get("action", "").strip()
 
+        # 检查管理员权限
+        is_admin = self._check_admin_permission()
+        if not is_admin:
+            await self.send_text("❌ 你没有权限使用此命令", storage_message=False)
+            return False, "没有管理员权限", True
+
         # 检查会话权限（支持群聊和私聊）
         has_permission, permission_error = self._check_chat_permission()
         if not has_permission:
@@ -109,6 +115,24 @@ class NaiRecallControlCommand(BaseCommand):
 
         logger.warning(f"{self.log_prefix} {chat_type} {current_chat_key} 没有自动撤回权限")
         return False, "当前会话没有使用自动撤回功能的权限"
+
+    def _check_admin_permission(self) -> bool:
+        """检查当前用户是否是管理员"""
+        try:
+            admin_users = self.get_config("admin.admin_users", [])
+            if not admin_users:
+                # 如果未配置管理员列表，默认允许所有人管理
+                logger.warning(f"{self.log_prefix} 未配置管理员列表，允许所有人使用管理命令")
+                return True
+
+            user_id = str(self.message.message_info.user_info.user_id) if self.message and self.message.message_info and self.message.message_info.user_info else None
+            is_admin = user_id in admin_users
+
+            logger.debug(f"{self.log_prefix} 用户 {user_id} 管理员检查结果: {is_admin}")
+            return is_admin
+        except Exception as e:
+            logger.error(f"{self.log_prefix} 检查管理员权限时出错: {e}", exc_info=True)
+            return False
 
     @classmethod
     def is_recall_enabled(cls, platform: str, chat_id: str, get_config_func) -> bool:
