@@ -11,11 +11,12 @@ from src.common.logger import get_logger
 from .nai_web_client import NaiWebClient
 from .auto_recall_mixin import AutoRecallMixin
 from .image_url_helper import save_base64_image_to_file
+from .model_config_mixin import ModelConfigMixin
 
 logger = get_logger("nai_pic_plugin")
 
 
-class Nai0DrawCommand(AutoRecallMixin, BaseCommand):
+class Nai0DrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
     """NovelAI 直接标签生图命令：/nai0 [英文tag]"""
 
     command_name = "nai_0_draw"
@@ -125,145 +126,6 @@ class Nai0DrawCommand(AutoRecallMixin, BaseCommand):
         else:
             await self.send_text(f"生成图片失败：{result}")
             return False, f"生成失败: {result}", True
-
-    def _get_model_config(self) -> Dict[str, Any]:
-        """获取模型配置"""
-        model_config = self.get_config("model", {})
-        if not model_config:
-            return {}
-
-        # 检查是否有用户选定的模型
-        try:
-            from .nai_admin_command import NaiAdminControlCommand
-
-            platform = self.message.message_info.platform
-            group_info = self.message.message_info.group_info
-
-            if group_info and group_info.group_id:
-                chat_id = group_info.group_id
-            else:
-                chat_id = self.message.message_info.user_info.user_id
-
-            selected_model = NaiAdminControlCommand.get_selected_model(
-                platform, chat_id, self.get_config
-            )
-
-            if selected_model:
-                # 创建配置副本并覆盖模型
-                model_config = dict(model_config)
-                model_config["default_model"] = selected_model
-
-                # 根据模型名称加载对应的提示词配置
-                model_specific_config = self._get_model_specific_config(selected_model)
-                if model_specific_config:
-                    # 用模型特定配置覆盖默认配置中的提示词部分
-                    model_config.update(model_specific_config)
-                    logger.info(f"{self.log_prefix} 使用模型特定配置: {selected_model}")
-
-                logger.info(f"{self.log_prefix} 使用选定的模型: {selected_model}")
-        except Exception as e:
-            logger.error(f"{self.log_prefix} 获取选定模型时出错: {e}", exc_info=True)
-
-        return model_config
-
-    def _get_model_specific_config(self, model_name: str) -> Optional[Dict[str, Any]]:
-        """根据模型名称获取特定配置"""
-        if not model_name:
-            return None
-
-        # NAI V3 系列（包括 nai-diffusion-3 和 nai-diffusion-3-furry）
-        if model_name.startswith("nai-diffusion-3"):
-            nai3_config = self.get_config("model_nai3", {})
-            if nai3_config:
-                config = {
-                    "nai_artist_prompt": nai3_config.get("nai_artist_prompt", ""),
-                    "nai_size": nai3_config.get("nai_size", ""),
-                    "nai_cfg": nai3_config.get("nai_cfg", 0.0),
-                    "nai_noise_schedule": nai3_config.get("nai_noise_schedule", "karras"),
-                    "nai_nocache": nai3_config.get("nai_nocache", 0),
-                    "sampler": nai3_config.get("sampler", "k_euler_ancestral"),
-                    "num_inference_steps": nai3_config.get("num_inference_steps", 28),
-                    "guidance_scale": nai3_config.get("guidance_scale", 5.0),
-                    "default_size": nai3_config.get("default_size", "1024x1280"),
-                    "custom_prompt_add": nai3_config.get("custom_prompt_add", ""),
-                    "negative_prompt_add": nai3_config.get("negative_prompt_add", ""),
-                    "selfie_prompt_add": nai3_config.get("selfie_prompt_add", ""),
-                }
-                # 检查用户选定的画师串
-                selected_artist = self._get_selected_artist_preset(model_name)
-                if selected_artist:
-                    config["nai_artist_prompt"] = selected_artist
-                return config
-
-        # NAI V4.5 系列（nai-diffusion-4-5-* 系列，优先级高于 V4）
-        elif model_name.startswith("nai-diffusion-4-5"):
-            nai4_5_config = self.get_config("model_nai4_5", {})
-            if nai4_5_config:
-                config = {
-                    "nai_artist_prompt": nai4_5_config.get("nai_artist_prompt", ""),
-                    "nai_size": nai4_5_config.get("nai_size", ""),
-                    "nai_cfg": nai4_5_config.get("nai_cfg", 0.0),
-                    "nai_noise_schedule": nai4_5_config.get("nai_noise_schedule", "karras"),
-                    "nai_nocache": nai4_5_config.get("nai_nocache", 0),
-                    "sampler": nai4_5_config.get("sampler", "k_euler_ancestral"),
-                    "num_inference_steps": nai4_5_config.get("num_inference_steps", 28),
-                    "guidance_scale": nai4_5_config.get("guidance_scale", 5.0),
-                    "default_size": nai4_5_config.get("default_size", "1024x1280"),
-                    "custom_prompt_add": nai4_5_config.get("custom_prompt_add", ""),
-                    "negative_prompt_add": nai4_5_config.get("negative_prompt_add", ""),
-                    "selfie_prompt_add": nai4_5_config.get("selfie_prompt_add", ""),
-                }
-                # 检查用户选定的画师串
-                selected_artist = self._get_selected_artist_preset(model_name)
-                if selected_artist:
-                    config["nai_artist_prompt"] = selected_artist
-                return config
-
-        # NAI V4 系列（nai-diffusion-4-* 系列）
-        elif model_name.startswith("nai-diffusion-4"):
-            nai4_config = self.get_config("model_nai4", {})
-            if nai4_config:
-                config = {
-                    "nai_artist_prompt": nai4_config.get("nai_artist_prompt", ""),
-                    "nai_size": nai4_config.get("nai_size", ""),
-                    "nai_cfg": nai4_config.get("nai_cfg", 0.0),
-                    "nai_noise_schedule": nai4_config.get("nai_noise_schedule", "karras"),
-                    "nai_nocache": nai4_config.get("nai_nocache", 0),
-                    "sampler": nai4_config.get("sampler", "k_euler_ancestral"),
-                    "num_inference_steps": nai4_config.get("num_inference_steps", 28),
-                    "guidance_scale": nai4_config.get("guidance_scale", 5.0),
-                    "default_size": nai4_config.get("default_size", "1024x1280"),
-                    "custom_prompt_add": nai4_config.get("custom_prompt_add", ""),
-                    "negative_prompt_add": nai4_config.get("negative_prompt_add", ""),
-                    "selfie_prompt_add": nai4_config.get("selfie_prompt_add", ""),
-                }
-                # 检查用户选定的画师串
-                selected_artist = self._get_selected_artist_preset(model_name)
-                if selected_artist:
-                    config["nai_artist_prompt"] = selected_artist
-                return config
-
-        return None
-
-    def _get_selected_artist_preset(self, model_name: str) -> Optional[str]:
-        """获取用户选定的画师串"""
-        try:
-            from .nai_admin_command import NaiAdminControlCommand
-
-            platform = self.message.message_info.platform
-            group_info = self.message.message_info.group_info
-
-            if group_info and group_info.group_id:
-                chat_id = group_info.group_id
-            else:
-                chat_id = self.message.message_info.user_info.user_id
-
-            return NaiAdminControlCommand.get_selected_artist_preset(
-                platform, chat_id, model_name, self.get_config
-            )
-        except Exception as e:
-            logger.warning(f"{self.log_prefix} 获取用户选定画师串失败: {e}")
-            return None
 
     def _process_api_response(self, result: str) -> Optional[str]:
         """处理 API 响应"""

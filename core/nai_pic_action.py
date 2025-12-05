@@ -11,6 +11,7 @@ from src.plugin_system import llm_api
 from .nai_web_client import NaiWebClient
 from .auto_recall_mixin import AutoRecallMixin
 from .image_url_helper import save_base64_image_to_file
+from .model_config_mixin import ModelConfigMixin
 
 logger = get_logger("nai_pic_plugin")
 
@@ -100,7 +101,7 @@ _PROMPT_GENERATOR_TEMPLATE = f"""
 <<SELFIE_HINT>>
 """.strip()
 
-class NaiPicAction(AutoRecallMixin, BaseAction):
+class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
     """NovelAI Web 图片生成动作"""
 
     # 激活设置
@@ -289,79 +290,6 @@ class NaiPicAction(AutoRecallMixin, BaseAction):
         else:
             await self.send_text(f"哎呀，生成图片时遇到问题：{result}")
             return False, f"生成失败: {result}"
-
-    def _get_model_config(self) -> Dict[str, Any]:
-        """获取模型配置，根据模型名称自动合并对应版本的配置"""
-        base_config = self.get_config("model", {})
-        if not base_config:
-            logger.error(f"{self.log_prefix} 模型配置读取失败")
-            return {}
-
-        # 获取模型名称
-        model_name = base_config.get("default_model", "")
-
-        # 根据模型名称确定使用哪个版本的配置
-        version_config = {}
-        if model_name:
-            if "nai-diffusion-3" in model_name:
-                # NAI V3 模型
-                version_config = self.get_config("model_nai3", {})
-                logger.info(f"{self.log_prefix} 检测到 NAI V3 模型，使用 model_nai3 配置")
-            elif "nai-diffusion-4-5" in model_name:
-                # NAI V4.5 模型（优先级高于 V4）
-                version_config = self.get_config("model_nai4_5", {})
-                logger.info(f"{self.log_prefix} 检测到 NAI V4.5 模型，使用 model_nai4_5 配置")
-            elif "nai-diffusion-4" in model_name:
-                # NAI V4 模型
-                version_config = self.get_config("model_nai4", {})
-                logger.info(f"{self.log_prefix} 检测到 NAI V4 模型，使用 model_nai4 配置")
-
-        # 合并配置：base_config 作为基础，version_config 覆盖
-        merged_config = base_config.copy()
-        if version_config:
-            # 合并所有配置项，version_config 中的值优先
-            for key, value in version_config.items():
-                if key == "nai_extra_params":
-                    # 特殊处理 nai_extra_params，合并而不是覆盖
-                    base_extra = merged_config.get("nai_extra_params", {})
-                    version_extra = value or {}
-                    merged_extra = base_extra.copy()
-                    merged_extra.update(version_extra)
-                    merged_config["nai_extra_params"] = merged_extra
-                elif key == "artist_presets":
-                    # 跳过 artist_presets，不直接合并到配置中
-                    continue
-                else:
-                    # 其他配置项直接覆盖
-                    merged_config[key] = value
-
-        # 获取用户选定的画师串（如果有）
-        try:
-            from .nai_admin_command import NaiAdminControlCommand
-
-            platform = self.action_message.message_info.platform if self.action_message else ""
-            group_info = self.action_message.message_info.group_info if self.action_message else None
-            user_info = self.action_message.message_info.user_info if self.action_message else None
-
-            if group_info and group_info.group_id:
-                chat_id = group_info.group_id
-            elif user_info:
-                chat_id = user_info.user_id
-            else:
-                chat_id = ""
-
-            if platform and chat_id:
-                selected_artist = NaiAdminControlCommand.get_selected_artist_preset(
-                    platform, chat_id, model_name, self.get_config
-                )
-                if selected_artist:
-                    # 用户选定的画师串覆盖配置中的 nai_artist_prompt
-                    merged_config["nai_artist_prompt"] = selected_artist
-                    logger.info(f"{self.log_prefix} 使用用户选定的画师串: {selected_artist[:50]}...")
-        except Exception as e:
-            logger.warning(f"{self.log_prefix} 获取用户选定画师串失败: {e}")
-
-        return merged_config
 
     def _process_api_response(self, result: str) -> Optional[str]:
         """处理API响应，返回base64或URL"""
