@@ -18,7 +18,7 @@ class NaiPicPlugin(BasePlugin):
 
     # 插件基本信息
     plugin_name = "nai_pic_plugin"
-    plugin_version = "1.0.0"
+    plugin_version = "1.1.0"
     plugin_author = "Rabbit"
     enable_plugin = True
     dependencies: List[str] = []
@@ -77,88 +77,40 @@ class NaiPicPlugin(BasePlugin):
                 description="API Token（如需要）",
                 required=False
             ),
-            "model": ConfigField(
+            "available_models": ConfigField(
+                type=list,
+                default=[
+                    "nai-diffusion-3",
+                    "nai-diffusion-3-furry",
+                    "nai-diffusion-4-curated",
+                    "nai-diffusion-4-full",
+                    "nai-diffusion-4-5-full"
+                ],
+                description="可用的 NovelAI 模型列表"
+            ),
+            "default_model": ConfigField(
                 type=str,
                 default="nai-diffusion-4-5-full",
-                description="NovelAI 模型名称"
+                description="当前使用的模型名称（从 available_models 中选择）"
             ),
             "nai_endpoint": ConfigField(
                 type=str,
                 default="/generate",
                 description="API 端点路径"
             ),
-            "nai_artist_prompt": ConfigField(
-                type=str,
-                default="",
-                description="画师风格提示词（可选）"
-            ),
-            "nai_size": ConfigField(
-                type=str,
-                default="竖图",
-                description="图片尺寸，支持'竖图'、'方图'等，或'1024x1024'格式"
-            ),
-            "nai_cfg": ConfigField(
-                type=float,
-                default=0.0,
-                description="CFG 参数"
-            ),
-            "nai_noise_schedule": ConfigField(
-                type=str,
-                default="karras",
-                description="噪声调度器"
-            ),
-            "nai_nocache": ConfigField(
-                type=int,
-                default=0,
-                description="是否禁用缓存，1=禁用，0=启用"
-            ),
-            "sampler": ConfigField(
-                type=str,
-                default="k_euler_ancestral",
-                description="采样器类型",
-                choices=["k_euler", "k_euler_ancestral", "k_dpmpp_2s_ancestral", "k_dpmpp_2m", "k_dpmpp_sde", "ddim"]
-            ),
-            "num_inference_steps": ConfigField(
-                type=int,
-                default=23,
-                description="推理步数"
-            ),
-            "guidance_scale": ConfigField(
-                type=float,
-                default=5.0,
-                description="指导强度（scale参数）"
-            ),
-            "default_size": ConfigField(
-                type=str,
-                default="1024x1280",
-                description="默认尺寸（如果nai_size未设置）"
-            ),
-            "custom_prompt_add": ConfigField(
-                type=str,
-                default="",
-                description="��动添加的提示词后缀"
-            ),
-            "negative_prompt_add": ConfigField(
-                type=str,
-                default="",
-                description="负面提示词"
-            ),
-            "selfie_prompt_add": ConfigField(
-                type=str,
-                default="",
-                description="自拍模式专用提示词前缀（Bot的默认形象特征，如发色、瞳色等）"
-            ),
-            "nai_extra_params": ConfigField(
-                type=dict,
-                default={},
-                description="额外的URL查询参数"
-            ),
         },
         "model_nai3": {
+            "artist_presets": ConfigField(
+                type=list,
+                default=[
+                    "{artist:kousaki ruri},artist:ningen_mame, artist:fumio_(rsqkr),[artist:sho (sho lwlw)],[artist:ask_(askzy)],artist:wanke,[[tianliang duohe fangdongye]],[artist:wlop],year 2023"
+                ],
+                description="NAI V3 画师风格预设列表（可配置多个）"
+            ),
             "nai_artist_prompt": ConfigField(
                 type=str,
                 default="",
-                description="NAI V3 专用画师风格提示词（可选）"
+                description="NAI V3 专用画师风格提示词（可选，优先级低于 artist_presets）"
             ),
             "nai_size": ConfigField(
                 type=str,
@@ -222,10 +174,17 @@ class NaiPicPlugin(BasePlugin):
             )
         },
         "model_nai4": {
+            "artist_presets": ConfigField(
+                type=list,
+                default=[
+                    "1.2::efe::, 1.0::inamori ryusa::, 0.9::tianliang duohe fangdongye::, 0.8::nong 345 ::, 0.7::mimoza (96mimo414)::, 0.7::kazutake hazano::, {channel_(caststation)}"
+                ],
+                description="NAI V4 画师风格预设列表（可配置多个）"
+            ),
             "nai_artist_prompt": ConfigField(
                 type=str,
                 default="",
-                description="NAI V4 专用画师风格提示词（可选）"
+                description="NAI V4 专用画师风格提示词（可选，优先级低于 artist_presets）"
             ),
             "nai_size": ConfigField(
                 type=str,
@@ -289,10 +248,17 @@ class NaiPicPlugin(BasePlugin):
             )
         },
         "model_nai4_5": {
+            "artist_presets": ConfigField(
+                type=list,
+                default=[
+                    "1.4::kazutake hazano::, 1.2::efe::, 1.0::inamori ryusa::, 0.9::tianliang duohe fangdongye::, 0.8::min_(120716)::, 0.8::misumigumi::, 0.8::makihitsuji::, 0.8::nong 345 ::, 0.7::mimoza (96mimo414)::, 0.6::fujiyama::, 0.5::rella::, 0.4::dolphro-kun::, [[channel_(caststation)]]"
+                ],
+                description="NAI V4.5 画师风格预设列表（可配置多个）"
+            ),
             "nai_artist_prompt": ConfigField(
                 type=str,
                 default="",
-                description="NAI V4.5 专用画师风格提示词（可选）"
+                description="NAI V4.5 专用画师风格提示词（可选，优先级低于 artist_presets）"
             ),
             "nai_size": ConfigField(
                 type=str,

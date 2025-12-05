@@ -24,19 +24,7 @@ class NaiRecallControlCommand(BaseCommand):
         # 获取匹配的参数
         action = self.matched_groups.get("action", "").strip()
 
-        # 检查管理员权限
-        is_admin = self._check_admin_permission()
-        if not is_admin:
-            await self.send_text("❌ 你没有权限使用此命令", storage_message=False)
-            return False, "没有管理员权限", True
-
-        # 检查会话权限（支持群聊和私聊）
-        has_permission, permission_error = self._check_chat_permission()
-        if not has_permission:
-            await self.send_text(f"❌ {permission_error}")
-            return False, permission_error, True
-
-        # 获取当前会话的key（支持群聊和私聊）
+        # 获取当前会话信息
         platform = self.message.message_info.platform
         group_info = self.message.message_info.group_info
         user_info = self.message.message_info.user_info
@@ -47,6 +35,24 @@ class NaiRecallControlCommand(BaseCommand):
         else:
             chat_id = user_info.user_id
             chat_type = "私聊"
+
+        user_id = user_info.user_id
+
+        # 权限检查：如果管理员模式开启，则需要管理员权限
+        from .nai_admin_command import NaiAdminControlCommand
+        admin_mode_enabled = NaiAdminControlCommand.is_admin_mode_enabled(platform, chat_id, self.get_config)
+
+        if admin_mode_enabled:
+            is_admin = self._check_admin_permission()
+            if not is_admin:
+                await self.send_text("❌ 当前会话已开启管理员模式，仅管理员可使用此命令", storage_message=False)
+                return False, "没有权限", True
+
+        # 检查会话权限（支持群聊和私聊）
+        has_permission, permission_error = self._check_chat_permission()
+        if not has_permission:
+            await self.send_text(f"❌ {permission_error}")
+            return False, permission_error, True
 
         current_chat_key = f"{platform}:{chat_id}"
 

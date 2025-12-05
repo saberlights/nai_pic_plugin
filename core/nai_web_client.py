@@ -58,7 +58,7 @@ class NaiWebClient:
 
             params = {
                 "tag": full_prompt,
-                "model": model_config.get("model", "nai-diffusion-4-5-full")
+                "model": model_config.get("default_model", "nai-diffusion-4-5-full")
             }
 
             if token:

@@ -327,7 +327,7 @@ class NaiDrawCommand(AutoRecallMixin, BaseCommand):
             if selected_model:
                 # 创建配置副本并覆盖模型
                 model_config = dict(model_config)
-                model_config["model"] = selected_model
+                model_config["default_model"] = selected_model
 
                 # 根据模型名称加载对应的提示词配置
                 model_specific_config = self._get_model_specific_config(selected_model)
@@ -351,23 +351,53 @@ class NaiDrawCommand(AutoRecallMixin, BaseCommand):
         if model_name.startswith("nai-diffusion-3"):
             nai3_config = self.get_config("model_nai3", {})
             if nai3_config:
-                return {
+                config = {
                     "nai_artist_prompt": nai3_config.get("nai_artist_prompt", ""),
                     "custom_prompt_add": nai3_config.get("custom_prompt_add", ""),
                     "negative_prompt_add": nai3_config.get("negative_prompt_add", "")
                 }
+                # 检查用户选定的画师串
+                selected_artist = self._get_selected_artist_preset(model_name)
+                if selected_artist:
+                    config["nai_artist_prompt"] = selected_artist
+                return config
 
         # NAI V4 系列（nai-diffusion-4-* 系列）
         elif model_name.startswith("nai-diffusion-4"):
             nai4_config = self.get_config("model_nai4", {})
             if nai4_config:
-                return {
+                config = {
                     "nai_artist_prompt": nai4_config.get("nai_artist_prompt", ""),
                     "custom_prompt_add": nai4_config.get("custom_prompt_add", ""),
                     "negative_prompt_add": nai4_config.get("negative_prompt_add", "")
                 }
+                # 检查用户选定的画师串
+                selected_artist = self._get_selected_artist_preset(model_name)
+                if selected_artist:
+                    config["nai_artist_prompt"] = selected_artist
+                return config
 
         return None
+
+    def _get_selected_artist_preset(self, model_name: str) -> Optional[str]:
+        """获取用户选定的画师串"""
+        try:
+            from .nai_admin_command import NaiAdminControlCommand
+
+            platform = self.message.message_info.platform
+            group_info = self.message.message_info.group_info
+
+            if group_info and group_info.group_id:
+                chat_id = group_info.group_id
+            else:
+                chat_id = self.message.message_info.user_info.user_id
+
+            return NaiAdminControlCommand.get_selected_artist_preset(
+                platform, chat_id, model_name, self.get_config
+            )
+        except Exception as e:
+            logger.warning(f"{self.log_prefix} 获取用户选定画师串失败: {e}")
+            return None
 
     def _process_api_response(self, result: str) -> Optional[str]:
         """处理 API 响应"""

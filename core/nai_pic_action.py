@@ -170,6 +170,12 @@ class NaiPicAction(AutoRecallMixin, BaseAction):
         """执行 NovelAI Web 图片生成"""
         logger.info(f"{self.log_prefix} 执行 NovelAI Web 图片生成动作")
 
+        # 检查用户权限
+        has_permission = self._check_user_permission()
+        if not has_permission:
+            await self.send_text("❌ 当前会话已开启管理员模式，仅管理员可使用此功能", storage_message=False)
+            return False, "没有权限"
+
         # 获取参数
         description = (self.action_data.get("description") or "").strip()
         size = (self.action_data.get("size") or "").strip()
@@ -292,7 +298,7 @@ class NaiPicAction(AutoRecallMixin, BaseAction):
             return {}
 
         # 获取模型名称
-        model_name = base_config.get("model", "")
+        model_name = base_config.get("default_model", "")
 
         # 根据模型名称确定使用哪个版本的配置
         version_config = {}
@@ -322,9 +328,38 @@ class NaiPicAction(AutoRecallMixin, BaseAction):
                     merged_extra = base_extra.copy()
                     merged_extra.update(version_extra)
                     merged_config["nai_extra_params"] = merged_extra
+                elif key == "artist_presets":
+                    # 跳过 artist_presets，不直接合并到配置中
+                    continue
                 else:
                     # 其他配置项直接覆盖
                     merged_config[key] = value
+
+        # 获取用户选定的画师串（如果有）
+        try:
+            from .nai_admin_command import NaiAdminControlCommand
+
+            platform = self.action_message.message_info.platform if self.action_message else ""
+            group_info = self.action_message.message_info.group_info if self.action_message else None
+            user_info = self.action_message.message_info.user_info if self.action_message else None
+
+            if group_info and group_info.group_id:
+                chat_id = group_info.group_id
+            elif user_info:
+                chat_id = user_info.user_id
+            else:
+                chat_id = ""
+
+            if platform and chat_id:
+                selected_artist = NaiAdminControlCommand.get_selected_artist_preset(
+                    platform, chat_id, model_name, self.get_config
+                )
+                if selected_artist:
+                    # 用户选定的画师串覆盖配置中的 nai_artist_prompt
+                    merged_config["nai_artist_prompt"] = selected_artist
+                    logger.info(f"{self.log_prefix} 使用用户选定的画师串: {selected_artist[:50]}...")
+        except Exception as e:
+            logger.warning(f"{self.log_prefix} 获取用户选定画师串失败: {e}")
 
         return merged_config
 
@@ -489,3 +524,33 @@ class NaiPicAction(AutoRecallMixin, BaseAction):
             return config
         legacy = self.get_config("prompt_fallback", None)
         return legacy or {}
+
+    def _check_user_permission(self) -> bool:
+        """检查当前用户是否有权限使用生图功能"""
+        try:
+            from .nai_admin_command import NaiAdminControlCommand
+
+            # 获取会话信息
+            platform = self.action_message.message_info.platform if self.action_message else ""
+            group_info = self.action_message.message_info.group_info if self.action_message else None
+            user_info = self.action_message.message_info.user_info if self.action_message else None
+
+            if not platform or not user_info:
+                # 无法获取会话信息时默认允许
+                return True
+
+            if group_info and group_info.group_id:
+                chat_id = group_info.group_id
+            else:
+                chat_id = user_info.user_id
+
+            user_id = user_info.user_id
+
+            # 检查用户权限
+            return NaiAdminControlCommand.check_user_permission(
+                platform, chat_id, user_id, self.get_config
+            )
+        except Exception as e:
+            logger.error(f"{self.log_prefix} 检查用户权限时出错: {e}", exc_info=True)
+            # 出错时默认允许
+            return True
