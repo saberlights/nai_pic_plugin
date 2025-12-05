@@ -103,7 +103,7 @@ class NaiPicPlugin(BasePlugin):
             "artist_presets": ConfigField(
                 type=list,
                 default=[
-                    "{artist:kousaki ruri},artist:ningen_mame, artist:fumio_(rsqkr),[artist:sho (sho lwlw)],[artist:ask_(askzy)],artist:wanke,[[tianliang duohe fangdongye]],[artist:wlop],year 2023"
+                    "artist:example1, artist:example2, year 2023"
                 ],
                 description="NAI V3 画师风格预设列表（可配置多个）"
             ),
@@ -177,7 +177,7 @@ class NaiPicPlugin(BasePlugin):
             "artist_presets": ConfigField(
                 type=list,
                 default=[
-                    "1.2::efe::, 1.0::inamori ryusa::, 0.9::tianliang duohe fangdongye::, 0.8::nong 345 ::, 0.7::mimoza (96mimo414)::, 0.7::kazutake hazano::, {channel_(caststation)}"
+                    "1.0::artist:example1::, 0.8::artist:example2::"
                 ],
                 description="NAI V4 画师风格预设列表（可配置多个）"
             ),
@@ -251,7 +251,7 @@ class NaiPicPlugin(BasePlugin):
             "artist_presets": ConfigField(
                 type=list,
                 default=[
-                    "1.4::kazutake hazano::, 1.2::efe::, 1.0::inamori ryusa::, 0.9::tianliang duohe fangdongye::, 0.8::min_(120716)::, 0.8::misumigumi::, 0.8::makihitsuji::, 0.8::nong 345 ::, 0.7::mimoza (96mimo414)::, 0.6::fujiyama::, 0.5::rella::, 0.4::dolphro-kun::, [[channel_(caststation)]]"
+                    "1.2::artist:example1::, 1.0::artist:example2::, 0.8::artist:example3::"
                 ],
                 description="NAI V4.5 画师风格预设列表（可配置多个）"
             ),

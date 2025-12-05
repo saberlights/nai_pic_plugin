@@ -235,7 +235,7 @@ class NaiAdminControlCommand(BaseCommand):
         if not preset_index:
             current_index = self._selected_artist_presets.get(chat_key, 1)
             preset_list = "\n".join([
-                f"{'→ ' if i == current_index else '  '}{i}. {preset[:60]}{'...' if len(preset) > 60 else ''}"
+                f"{'→ ' if i == current_index else '  '}{i}. {preset[:30]}..."
                 for i, preset in enumerate(artist_presets, 1)
             ])
 
@@ -267,7 +267,7 @@ class NaiAdminControlCommand(BaseCommand):
         await self.send_text(
             f"✅ 已切换到画师串 #{index}\n"
             f"模型: {model_display}\n"
-            f"画师串: {selected_preset[:100]}{'...' if len(selected_preset) > 100 else ''}"
+            f"预览: {selected_preset[:30]}..."
         )
         logger.info(f"{self.log_prefix} 会话 {chat_key} 已切换到画师串 #{index}")
         return True, f"已切换到画师串 #{index}", True
