@@ -458,21 +458,10 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
         try:
             from .nai_admin_command import NaiAdminControlCommand
 
-            # 获取会话信息
-            platform = self.action_message.message_info.platform if self.action_message else ""
-            group_info = self.action_message.message_info.group_info if self.action_message else None
-            user_info = self.action_message.message_info.user_info if self.action_message else None
-
-            if not platform or not user_info:
-                # 无法获取会话信息时默认允许
+            platform, chat_id, user_id = self._get_chat_identity()
+            if not platform or not chat_id or not user_id:
+                logger.warning(f"{self.log_prefix} 无法获取会话身份，默认允许")
                 return True
-
-            if group_info and group_info.group_id:
-                chat_id = group_info.group_id
-            else:
-                chat_id = user_info.user_id
-
-            user_id = user_info.user_id
 
             # 检查用户权限
             return NaiAdminControlCommand.check_user_permission(

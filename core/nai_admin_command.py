@@ -44,11 +44,20 @@ class NaiAdminControlCommand(BaseCommand):
         param = self.matched_groups.get("param", "").strip() if self.matched_groups.get("param") else ""
 
         # 获取当前会话的key（支持群聊和私聊）
-        platform = self.message.message_info.platform
-        group_info = self.message.message_info.group_info
-        user_info = self.message.message_info.user_info
+        if not self.message or not getattr(self.message, "message_info", None):
+            await self.send_text("❌ 无法获取会话信息", storage_message=False)
+            return False, "无法获取会话信息", True
 
-        if group_info and group_info.group_id:
+        message_info = self.message.message_info
+        platform = getattr(message_info, "platform", "")
+        group_info = getattr(message_info, "group_info", None)
+        user_info = getattr(message_info, "user_info", None)
+
+        if not user_info:
+            await self.send_text("❌ 无法获取用户信息", storage_message=False)
+            return False, "无法获取用户信息", True
+
+        if group_info and getattr(group_info, "group_id", None):
             chat_id = group_info.group_id
             chat_type = "群聊"
         else:
@@ -224,24 +233,27 @@ class NaiAdminControlCommand(BaseCommand):
             await self.send_text("❌ 当前模型不支持画师串切换")
             return False, "模型不支持画师串", True
 
-        # 获取画师串列表
-        artist_presets = self.get_config(f"{config_section}.artist_presets", [])
+        # 获取画师串列表（原始格式）
+        artist_presets_raw = self.get_config(f"{config_section}.artist_presets", [])
 
-        if not artist_presets:
+        if not artist_presets_raw:
             await self.send_text(f"❌ {model_display} 模型未配置画师串预设")
             return False, "未配置画师串", True
+
+        # 解析画师串列表，支持新旧格式
+        artist_presets = self._parse_artist_presets(artist_presets_raw)
 
         # 如果没有提供索引，显示列表
         if not preset_index:
             current_index = self._selected_artist_presets.get(chat_key, 1)
             preset_list = "\n".join([
-                f"{'→ ' if i == current_index else '  '}{i}. {preset[:30]}..."
+                f"{'→ ' if i == current_index else '  '}{i}. {preset['name']}"
                 for i, preset in enumerate(artist_presets, 1)
             ])
 
             await self.send_text(
                 f"当前模型: {model_display}\n"
-                f"当前画师串: #{current_index}\n\n"
+                f"当前画师串: #{current_index} - {artist_presets[current_index - 1]['name']}\n\n"
                 f"可用画师串:\n{preset_list}\n\n"
                 f"使用方法: /nai art <编号>"
             )
@@ -266,10 +278,10 @@ class NaiAdminControlCommand(BaseCommand):
 
         await self.send_text(
             f"✅ 已切换到画师串 #{index}\n"
-            f"模型: {model_display}\n"
-            f"预览: {selected_preset[:30]}..."
+            f"名称: {selected_preset['name']}\n"
+            f"模型: {model_display}"
         )
-        logger.info(f"{self.log_prefix} 会话 {chat_key} 已切换到画师串 #{index}")
+        logger.info(f"{self.log_prefix} 会话 {chat_key} 已切换到画师串 #{index} ({selected_preset['name']})")
         return True, f"已切换到画师串 #{index}", True
 
     def _check_admin_permission(self) -> bool:
@@ -281,7 +293,13 @@ class NaiAdminControlCommand(BaseCommand):
                 logger.warning(f"{self.log_prefix} 未配置管理员列表，允许所有人使用管理命令")
                 return True
 
-            user_id = str(self.message.message_info.user_info.user_id) if self.message and self.message.message_info and self.message.message_info.user_info else None
+            if not self.message or not getattr(self.message, "message_info", None):
+                logger.warning(f"{self.log_prefix} 无法获取消息信息")
+                return False
+
+            message_info = self.message.message_info
+            user_info = getattr(message_info, "user_info", None)
+            user_id = str(getattr(user_info, "user_id", "")) if user_info else None
             is_admin = user_id in admin_users
 
             logger.debug(f"{self.log_prefix} 用户 {user_id} 管理员检查结果: {is_admin}")
@@ -289,6 +307,38 @@ class NaiAdminControlCommand(BaseCommand):
         except Exception as e:
             logger.error(f"{self.log_prefix} 检查管理员权限时出错: {e}", exc_info=True)
             return False
+
+    @staticmethod
+    def _parse_artist_presets(presets_raw):
+        """
+        解析画师串预设列表，兼容新旧格式
+
+        新格式：[{"name": "风格名", "prompt": "画师串内容"}, ...]
+        旧格式：["画师串内容1", "画师串内容2", ...]
+
+        Returns:
+            List[Dict]: 统一返回 [{"name": "...", "prompt": "..."}, ...]
+        """
+        if not presets_raw:
+            return []
+
+        result = []
+        for i, preset in enumerate(presets_raw, 1):
+            if isinstance(preset, dict):
+                # 新格式：已经是字典
+                name = preset.get("name", f"画师串 {i}")
+                prompt = preset.get("prompt", "")
+                result.append({"name": name, "prompt": prompt})
+            elif isinstance(preset, str):
+                # 旧格式：纯字符串，自动生成名称
+                # 使用前30个字符作为默认名称
+                preview = preset[:30] + "..." if len(preset) > 30 else preset
+                result.append({"name": f"#{i} {preview}", "prompt": preset})
+            else:
+                logger.warning(f"跳过无效的画师串格式: {type(preset)}")
+                continue
+
+        return result
 
     @classmethod
     def is_admin_mode_enabled(cls, platform: str, chat_id: str, get_config_func) -> bool:
@@ -376,16 +426,21 @@ class NaiAdminControlCommand(BaseCommand):
         else:
             return None
 
-        # 获取画师串列表
-        artist_presets = get_config_func(f"{config_section}.artist_presets", [])
+        # 获取画师串列表（原始格式）
+        artist_presets_raw = get_config_func(f"{config_section}.artist_presets", [])
+        if not artist_presets_raw:
+            return None
+
+        # 解析画师串列表，兼容新旧格式
+        artist_presets = cls._parse_artist_presets(artist_presets_raw)
         if not artist_presets:
             return None
 
         # 获取选定的索引，默认为1（第一个）
         selected_index = cls._selected_artist_presets.get(current_chat_key, 1)
 
-        # 确保索引有效
+        # 确保索引有效，返回 prompt 内容
         if 1 <= selected_index <= len(artist_presets):
-            return artist_presets[selected_index - 1]
+            return artist_presets[selected_index - 1]["prompt"]
         else:
-            return artist_presets[0] if artist_presets else None
+            return artist_presets[0]["prompt"] if artist_presets else None

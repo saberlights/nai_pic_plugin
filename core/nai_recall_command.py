@@ -25,11 +25,20 @@ class NaiRecallControlCommand(BaseCommand):
         action = self.matched_groups.get("action", "").strip()
 
         # 获取当前会话信息
-        platform = self.message.message_info.platform
-        group_info = self.message.message_info.group_info
-        user_info = self.message.message_info.user_info
+        if not self.message or not getattr(self.message, "message_info", None):
+            await self.send_text("❌ 无法获取会话信息", storage_message=False)
+            return False, "无法获取会话信息", True
 
-        if group_info and group_info.group_id:
+        message_info = self.message.message_info
+        platform = getattr(message_info, "platform", "")
+        group_info = getattr(message_info, "group_info", None)
+        user_info = getattr(message_info, "user_info", None)
+
+        if not user_info:
+            await self.send_text("❌ 无法获取用户信息", storage_message=False)
+            return False, "无法获取用户信息", True
+
+        if group_info and getattr(group_info, "group_id", None):
             chat_id = group_info.group_id
             chat_type = "群聊"
         else:
@@ -88,19 +97,20 @@ class NaiRecallControlCommand(BaseCommand):
 
     def _check_chat_permission(self) -> Tuple[bool, Optional[str]]:
         """检查当前会话（群聊/私聊）是否有自动撤回权限"""
-        if not self.message or not self.message.message_info:
+        if not self.message or not getattr(self.message, "message_info", None):
             return False, "无法获取消息信息"
 
-        platform = self.message.message_info.platform
-        group_info = self.message.message_info.group_info
-        user_info = self.message.message_info.user_info
+        message_info = self.message.message_info
+        platform = getattr(message_info, "platform", "")
+        group_info = getattr(message_info, "group_info", None)
+        user_info = getattr(message_info, "user_info", None)
 
         # 判断是群聊还是私聊
-        if group_info and group_info.group_id:
+        if group_info and getattr(group_info, "group_id", None):
             # 群聊模式
             chat_id = group_info.group_id
             chat_type = "group"
-        elif user_info and user_info.user_id:
+        elif user_info and getattr(user_info, "user_id", None):
             # 私聊模式
             chat_id = user_info.user_id
             chat_type = "private"
@@ -131,7 +141,13 @@ class NaiRecallControlCommand(BaseCommand):
                 logger.warning(f"{self.log_prefix} 未配置管理员列表，允许所有人使用管理命令")
                 return True
 
-            user_id = str(self.message.message_info.user_info.user_id) if self.message and self.message.message_info and self.message.message_info.user_info else None
+            if not self.message or not getattr(self.message, "message_info", None):
+                logger.warning(f"{self.log_prefix} 无法获取消息信息")
+                return False
+
+            message_info = self.message.message_info
+            user_info = getattr(message_info, "user_info", None)
+            user_id = str(getattr(user_info, "user_id", "")) if user_info else None
             is_admin = user_id in admin_users
 
             logger.debug(f"{self.log_prefix} 用户 {user_id} 管理员检查结果: {is_admin}")

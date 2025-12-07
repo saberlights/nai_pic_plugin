@@ -96,20 +96,39 @@ class ModelConfigMixin:
         返回 (platform, chat_id, user_id)
         """
         message = getattr(self, "action_message", None) or getattr(self, "message", None)
-        if not message or not getattr(message, "message_info", None):
+        if not message:
             return "", "", ""
 
-        info = message.message_info
-        platform = str(getattr(info, "platform", "") or "")
+        # 优先从常规 MessageRecv（带 message_info）中获取
+        info = getattr(message, "message_info", None)
+        if info:
+            platform = str(getattr(info, "platform", "") or "")
+            group_info = getattr(info, "group_info", None)
+            user_info = getattr(info, "user_info", None)
 
-        group_info = getattr(info, "group_info", None)
-        user_info = getattr(info, "user_info", None)
+            chat_id = ""
+            if group_info and getattr(group_info, "group_id", None):
+                chat_id = str(group_info.group_id)
+            elif user_info and getattr(user_info, "user_id", None):
+                chat_id = str(user_info.user_id)
+
+            user_id = str(getattr(user_info, "user_id", "") if user_info else "")
+            return platform, chat_id, user_id
+
+        # Planner触发的Action通常只有DatabaseMessages，改为从chat_info中取
+        chat_info = getattr(message, "chat_info", None)
+        user_info = getattr(message, "user_info", None) or getattr(chat_info, "user_info", None)
+
+        platform = str(getattr(chat_info, "platform", "") or "")
 
         chat_id = ""
+        group_info = getattr(chat_info, "group_info", None) if chat_info else None
         if group_info and getattr(group_info, "group_id", None):
             chat_id = str(group_info.group_id)
         elif user_info and getattr(user_info, "user_id", None):
             chat_id = str(user_info.user_id)
+        elif chat_info and getattr(chat_info, "stream_id", None):
+            chat_id = str(chat_info.stream_id)
 
         user_id = str(getattr(user_info, "user_id", "") if user_info else "")
 

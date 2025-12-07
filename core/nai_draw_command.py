@@ -339,16 +339,27 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
             from .nai_admin_command import NaiAdminControlCommand
 
             # 获取会话信息
-            platform = self.message.message_info.platform
-            group_info = self.message.message_info.group_info
-            user_info = self.message.message_info.user_info
+            if not self.message or not getattr(self.message, "message_info", None):
+                logger.warning(f"{self.log_prefix} 无法获取 message_info，默认允许")
+                return True
 
-            if group_info and group_info.group_id:
+            message_info = self.message.message_info
+            platform = getattr(message_info, "platform", "")
+            group_info = getattr(message_info, "group_info", None)
+            user_info = getattr(message_info, "user_info", None)
+
+            if group_info and getattr(group_info, "group_id", None):
                 chat_id = group_info.group_id
-            else:
+            elif user_info and getattr(user_info, "user_id", None):
                 chat_id = user_info.user_id
+            else:
+                logger.warning(f"{self.log_prefix} 无法获取 chat_id，默认允许")
+                return True
 
-            user_id = user_info.user_id
+            user_id = getattr(user_info, "user_id", None) if user_info else None
+            if not user_id:
+                logger.warning(f"{self.log_prefix} 无法获取 user_id，默认允许")
+                return True
 
             # 检查用户权限
             return NaiAdminControlCommand.check_user_permission(
