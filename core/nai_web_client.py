@@ -2,6 +2,8 @@ import base64
 import requests
 import urllib3
 from typing import Dict, Any, Tuple, Optional
+from requests.adapters import HTTPAdapter
+from urllib3.util.ssl_ import create_urllib3_context
 
 from src.common.logger import get_logger
 
@@ -11,12 +13,27 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 logger = get_logger("nai_pic_plugin")
 
 
+class SSLAdapter(HTTPAdapter):
+    """自定义SSL适配器，用于处理SSL连接问题"""
+    def init_poolmanager(self, *args, **kwargs):
+        context = create_urllib3_context()
+        context.check_hostname = False
+        context.verify_mode = 0  # ssl.CERT_NONE
+        # 设置更宽松的SSL选项
+        context.options |= 0x4  # OP_LEGACY_SERVER_CONNECT
+        kwargs['ssl_context'] = context
+        return super().init_poolmanager(*args, **kwargs)
+
+
 class NaiWebClient:
     """NovelAI Web API 客户端（std.loliyc.com 风格）"""
 
     def __init__(self, action_instance):
         self.action = action_instance
         self.log_prefix = action_instance.log_prefix
+        # 创建带有自定义SSL适配器的session
+        self.session = requests.Session()
+        self.session.mount('https://', SSLAdapter())
 
     def generate_image(self, prompt: str, model_config: Dict[str, Any], size: str = None,
                       input_image_base64: str = None) -> Tuple[bool, str]:
@@ -98,7 +115,7 @@ class NaiWebClient:
 
             logger.info(f"{self.log_prefix} (NaiWeb) 请求URL: {url}")
             logger.debug(f"{self.log_prefix} (NaiWeb) 参数: tag长度={len(params.get('tag', ''))}, model={params.get('model')}, size={params.get('size')}")
-            response = requests.get(**request_kwargs)
+            response = self.session.get(**request_kwargs)
 
             if response.status_code != 200:
                 logger.error(f"{self.log_prefix} (NaiWeb) HTTP错误 {response.status_code}: {response.text[:200]}")
