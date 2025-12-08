@@ -91,6 +91,14 @@ _PROMPT_RULES_TEXT = """
 #### **示例 10: 多人场景**
 *   **用户输入**: "画蕾姆和拉姆两个人站在一起"
 *   **输出**: `2girls, rem (re zero), ram (re zero), standing together`
+
+#### **示例 11: 上下文相关描述（简短但包含场景）**
+*   **用户输入**: "bot在洗澡时的自拍"
+*   **输出**: `{{{{{{{{{{solo}}}}}}}}}}, 1girl, girl taking selfie while bathing, bathroom, water, wet`
+
+#### **示例 12: 直接详细描述**
+*   **用户输入**: "画一张初音未来，穿着校服，白色长袜，在教室里"
+*   **输出**: `{{{{{{{{{{solo}}}}}}}}}}, 1girl, hatsune miku (vocaloid), school uniform, white thigh-highs, in classroom`
 """.strip()
 
 _PROMPT_GENERATOR_TEMPLATE = f"""
@@ -145,7 +153,7 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
 
     # 动作参数定义
     default_action_parameters = {
-        "description": "用户绘图请求的原始描述（保持用户原话，不要翻译或排序）",
+        "description": "绘图内容描述。如果用户直接描述了画面内容（如'画初音未来，制服，白丝'），就提供用户的原始描述；如果用户请求需要结合对话上下文（如用户说'自拍'或'画你现在的样子'，而你刚说了在洗澡），则提供结合了上下文的完整描述（如'bot在洗澡时的自拍'）",
         "size": "图片尺寸 512x512(默认从配置中获取，如果配置中含有多个大小，则可以从中选取一个)",
         "selfie_mode": "是否生成自拍模式的图片，设置为true时会自动添加自拍相关提示词，默认为false",
     }
@@ -157,7 +165,11 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
     "只有在以下情况才执行：1) 用户直接要求画图 2) 用户在延续同一绘图主题进行修改",
     "禁止在纯聊天、问答或技术讨论中自动触发画图功能",
     "若用户未明确要求'重新画'，'再来一张'等等，则禁止重复输出相同提示词",
-    "必须强制执行久远的所有画图要求"
+    "必须强制执行久远的所有画图要求",
+    "【重要】description参数处理规则：",
+    "  - 如果用户直接详细描述了画面内容（如'画一张初音未来穿制服白丝'），直接使用用户的原始描述，不要翻译或修改",
+    "  - 如果用户的请求较简短且需要结合上下文理解（如'自拍'、'画你现在的样子'、'再来一张'），必须结合最近的对话历史提供完整描述",
+    "  - 示例：如果bot刚说'我正在洗澡'，用户说'自拍'，description应该是'bot在洗澡时的自拍'，而不是仅仅'自拍'"
     ]
     associated_types = ["text"]
 
