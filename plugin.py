@@ -103,9 +103,10 @@ class NaiPicPlugin(BasePlugin):
             "artist_presets": ConfigField(
                 type=list,
                 default=[
-                    "artist:example1, artist:example2, year 2023"
+                    {"name": "示例风格1", "prompt": "artist:example1, artist:example2, year 2023"},
+                    {"name": "示例风格2", "prompt": "artist:example3, artist:example4, year 2024"}
                 ],
-                description="NAI V3 画师风格预设列表（可配置多个）"
+                description="NAI V3 画师风格预设列表（可配置多个），每个预设包含 name（显示名称）和 prompt（画师串内容）"
             ),
             "nai_artist_prompt": ConfigField(
                 type=str,
@@ -177,9 +178,10 @@ class NaiPicPlugin(BasePlugin):
             "artist_presets": ConfigField(
                 type=list,
                 default=[
-                    "1.0::artist:example1::, 0.8::artist:example2::"
+                    {"name": "风格组合1", "prompt": "1.2::artist1::, 1.0::artist2::, 0.9::artist3::"},
+                    {"name": "风格组合2", "prompt": "1.5::artist4::, 1.0::artist5::, 0.8::artist6::"}
                 ],
-                description="NAI V4 画师风格预设列表（可配置多个）"
+                description="NAI V4 画师风格预设列表（可配置多个），每个预设包含 name（显示名称）和 prompt（画师串内容）"
             ),
             "nai_artist_prompt": ConfigField(
                 type=str,
@@ -251,9 +253,10 @@ class NaiPicPlugin(BasePlugin):
             "artist_presets": ConfigField(
                 type=list,
                 default=[
-                    "1.2::artist:example1::, 1.0::artist:example2::, 0.8::artist:example3::"
+                    {"name": "风格示例1", "prompt": "1.2::artist:example1::, 1.0::artist:example2::, 0.8::artist:example3::"},
+                    {"name": "风格示例2", "prompt": "1.5::artist:example4::, 1.3::artist:example5::"}
                 ],
-                description="NAI V4.5 画师风格预设列表（可配置多个）"
+                description="NAI V4.5 画师风格预设列表（可配置多个），每个预设包含 name（显示名称）和 prompt（画师串内容）"
             ),
             "nai_artist_prompt": ConfigField(
                 type=str,
