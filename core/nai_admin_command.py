@@ -22,6 +22,9 @@ class NaiAdminControlCommand(BaseCommand):
     # 类级别的画师串选择状态（会话级别）
     _selected_artist_presets = {}
 
+    # 类级别的尺寸选择状态（会话级别）
+    _selected_sizes = {}
+
     # 模型映射表
     MODEL_MAPPINGS = {
         "3": "nai-diffusion-3",
@@ -30,10 +33,23 @@ class NaiAdminControlCommand(BaseCommand):
         "4.5": "nai-diffusion-4-5-full",
     }
 
+    # 尺寸映射表
+    SIZE_MAPPINGS = {
+        "竖": "832x1216",
+        "竖图": "832x1216",
+        "横": "1216x832",
+        "横图": "1216x832",
+        "方": "1024x1024",
+        "方图": "1024x1024",
+        "h": "1216x832",  # horizontal
+        "v": "832x1216",  # vertical
+        "s": "1024x1024", # square
+    }
+
     # Command基本信息
     command_name = "nai_admin_control_command"
-    command_description = "NAI管理员模式控制命令：/nai <st|sp|set|art|help>"
-    command_pattern = r"(?:.*，说：\s*)?/nai\s+(?P<action>st|sp|set|art|help)(?:\s+(?P<param>.+))?$"
+    command_description = "NAI管理员模式控制命令：/nai <st|sp|set|art|size|help>"
+    command_pattern = r"(?:.*，说：\s*)?/nai\s+(?P<action>st|sp|set|art|size|help)(?:\s+(?P<param>.+))?$"
 
     async def execute(self) -> Tuple[bool, Optional[str], bool]:
         """执行管理员模式控制命令"""
@@ -82,8 +98,8 @@ class NaiAdminControlCommand(BaseCommand):
                 await self.send_text("❌ 只有管理员可以开启/关闭管理员模式", storage_message=False)
                 return False, "没有管理员权限", True
 
-        # set/art 操作根据管理员模式状态判断
-        elif action in ["set", "art"]:
+        # set/art/size 操作根据管理员模式状态判断
+        elif action in ["set", "art", "size"]:
             # 检查是否启用了管理员模式
             admin_mode_enabled = self.is_admin_mode_enabled(platform, chat_id, self.get_config)
             if admin_mode_enabled and not is_admin:
@@ -96,6 +112,9 @@ class NaiAdminControlCommand(BaseCommand):
 
         if action == "art":
             return await self._handle_set_artist(current_chat_key, param)
+
+        if action == "size":
+            return await self._handle_set_size(current_chat_key, param)
 
         if action == "st":
             # 开启管理员模式
@@ -126,6 +145,7 @@ class NaiAdminControlCommand(BaseCommand):
                 "/nai sp - 关闭管理员模式（所有人可用）\n"
                 "/nai set <模型> - 切换生图模型 (3/f3/4/4.5)\n"
                 "/nai art <编号> - 切换画师风格预设\n"
+                "/nai size <尺寸> - 切换图片尺寸 (竖/横/方)\n"
                 "/nai help - 查看所有命令帮助"
             )
             return False, "无效的操作参数", True
@@ -150,6 +170,12 @@ class NaiAdminControlCommand(BaseCommand):
 /nai art - 查看当前画师串列表
 /nai art <编号> - 切换画师风格预设
   示例：/nai art 2
+
+【图片尺寸】
+/nai size - 查看当前尺寸
+/nai size <尺寸> - 切换图片尺寸
+  可用尺寸：竖/v=竖图(832x1216), 横/h=横图(1216x832), 方/s=方图(1024x1024)
+  示例：/nai size 横
 
 【自动撤回】
 /nai on - 开启图片自动撤回功能
@@ -283,6 +309,62 @@ class NaiAdminControlCommand(BaseCommand):
         )
         logger.info(f"{self.log_prefix} 会话 {chat_key} 已切换到画师串 #{index} ({selected_preset['name']})")
         return True, f"已切换到画师串 #{index}", True
+
+    async def _handle_set_size(self, chat_key: str, size_key: str) -> Tuple[bool, Optional[str], bool]:
+        """处理尺寸切换命令"""
+        if not size_key:
+            # 显示当前尺寸和可用尺寸列表
+            current_size = self._selected_sizes.get(chat_key)
+            if current_size:
+                # 反向查找尺寸的友好名称
+                size_name = "自定义"
+                for key, value in self.SIZE_MAPPINGS.items():
+                    if value == current_size and key in ["竖图", "横图", "方图"]:
+                        size_name = key
+                        break
+                current_display = f"当前尺寸: {size_name} ({current_size})"
+            else:
+                current_display = "当前使用默认配置尺寸"
+
+            await self.send_text(
+                f"{current_display}\n\n"
+                "可用尺寸:\n"
+                "竖/v - 竖图 (832x1216)\n"
+                "横/h - 横图 (1216x832)\n"
+                "方/s - 方图 (1024x1024)\n\n"
+                "使用方法: /nai size <尺寸代号>"
+            )
+            return True, "显示尺寸列表", True
+
+        # 检查尺寸代号是否有效
+        if size_key not in self.SIZE_MAPPINGS:
+            await self.send_text(
+                f"❌ 无效的尺寸代号: {size_key}\n\n"
+                "可用尺寸:\n"
+                "竖/v - 竖图 (832x1216)\n"
+                "横/h - 横图 (1216x832)\n"
+                "方/s - 方图 (1024x1024)"
+            )
+            return False, "无效的尺寸代号", True
+
+        # 设置尺寸
+        size_value = self.SIZE_MAPPINGS[size_key]
+        self._selected_sizes[chat_key] = size_value
+
+        # 获取友好的尺寸名称
+        size_names = {
+            "832x1216": "竖图",
+            "1216x832": "横图",
+            "1024x1024": "方图"
+        }
+        size_display = size_names.get(size_value, size_value)
+
+        await self.send_text(
+            f"✅ 已切换到: {size_display}\n"
+            f"尺寸: {size_value}"
+        )
+        logger.info(f"{self.log_prefix} 会话 {chat_key} 已切换到尺寸 {size_value}")
+        return True, f"已切换到尺寸 {size_value}", True
 
     def _check_admin_permission(self) -> bool:
         """检查当前用户是否是管理员"""
@@ -444,3 +526,18 @@ class NaiAdminControlCommand(BaseCommand):
             return artist_presets[selected_index - 1]["prompt"]
         else:
             return artist_presets[0]["prompt"] if artist_presets else None
+
+    @classmethod
+    def get_selected_size(cls, platform: str, chat_id: str) -> Optional[str]:
+        """
+        静态方法：获取指定会话选定的尺寸
+
+        Args:
+            platform: 平台标识
+            chat_id: 会话ID（可以是group_id或user_id）
+
+        Returns:
+            Optional[str]: 选定的尺寸（如 "832x1216"），如果未设置则返回 None
+        """
+        current_chat_key = f"{platform}:{chat_id}"
+        return cls._selected_sizes.get(current_chat_key)

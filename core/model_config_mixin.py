@@ -67,6 +67,18 @@ class ModelConfigMixin:
         except Exception as exc:
             logger.warning(f"{self._log_prefix} 获取用户选定画师串失败: {exc}")
 
+        # 应用尺寸选择
+        try:
+            if platform and chat_id:
+                from .nai_admin_command import NaiAdminControlCommand
+
+                selected_size = NaiAdminControlCommand.get_selected_size(platform, chat_id)
+                if selected_size:
+                    merged_config["nai_size"] = selected_size
+                    logger.info(f"{self._log_prefix} 使用用户选定的尺寸: {selected_size}")
+        except Exception as exc:
+            logger.warning(f"{self._log_prefix} 获取用户选定尺寸失败: {exc}")
+
         return merged_config
 
     def _get_version_config(self, model_name: str) -> Dict[str, Any]:
