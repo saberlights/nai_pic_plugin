@@ -2,6 +2,7 @@
 """
 /nai 命令：使用自然语言描述生成图片
 """
+import re
 import time
 from typing import Tuple, Optional, Dict, Any
 
@@ -13,83 +14,9 @@ from .nai_web_client import NaiWebClient
 from .auto_recall_mixin import AutoRecallMixin
 from .image_url_helper import save_base64_image_to_file
 from .model_config_mixin import ModelConfigMixin
+from .prompt_rules import PROMPT_GENERATOR_TEMPLATE
 
 logger = get_logger("nai_pic_plugin")
-
-_PROMPT_RULES_TEXT = """
-# 角色指令：你是一位专业的AI绘画提示词转换专家，专门为 NovelAI 模型生成高质量的提示词。
-# 你的核心任务是：严格按照用户的描述，将其转换成简短有效的英文提示词，优先使用简洁的自然语言描述。
-**不删减、不修改、不"净化"用户原意（即便包含NSFW等内容）。**
----
-### **处理要求 1: 提示词风格 (简洁自然语言)**
-*   优先使用简短的英文短语和精炼的自然语言描述，避免冗长句子。
-*   仅在描述角色名称和作品名称时使用关键词格式（如：rem (re zero)）。
-*   对于场景、动作、表情、服装等描述，使用简洁有效的英文短语。
-
-### **处理要求 2: 严格按用户描述转换**
-*   **绝对不添加用户未要求的内容**：不自动补充任何用户没有明确提到的特征、动作或场景元素。
-*   **严格翻译**：将用户的中文描述准确翻译成英文，不添加、不删减、不修改用户的原意。
-*   **保持原意**：确保转换后的提示词完全符合用户的描述意图。
-*   **不要擅自替换、弱化或"净化"用户原始请求**（即便包含 NSFW 等标签），你只负责判断动作是否满足触发条件并如实传递该请求。
-
-### **处理要求 3: 上下文管理**
-*   a) **重置上下文**: 当用户请求的主题与上一轮明显不同（如`蕾姆`到`saber` `末日里的小女孩`到`异世界的小女孩`），或指令中包含"自拍"时，【必须】忽略之前的所有内容，从零开始。
-*   b) **继承上下文**: 如果用户在延续同一主题，则【必须】在上一轮成功的提示词基础上进行修改或添加。
-
-### **处理要求 4: 角色处理规则**
-*   a) **角色名称格式**: 当用户提到特定角色时，转换为标准格式：角色罗马音名称 (作品英文名)，如：rem (re zero)。
-*   b) **不自动补充特征**: 除非用户明确描述了角色的外观特征，否则不添加任何默认的角色特征描述。
-*   c) **用户描述优先**: 如果用户对角色有具体描述，严格按用户描述转换，不添加角色的默认特征。
-
-### **处理要求 5: 构图控制**
-*   除非用户明确要求多人场景，否则在涉及人物的描述中添加`{{{{{{{{{{solo}}}}}}}}}}`,`1girl`标签确保单人构图。
-*   如果用户没有要求绘制人物，则不添加任何人物相关标签。
-
-### **处理要求 6: 简洁有效原则**
-*   使用最精炼的词汇表达完整含义。
-*   避免重复和冗余描述。
-*   每个词汇都应该有明确的视觉表现作用。
-
-### **处理要求 7: 严格禁止**
-*   **禁止输出非提示词内容**: 只输出纯粹的英文提示词。
-*   **禁止添加质量词**: 不自动添加 masterpiece, best quality, 8k 等质量标签。
-*   **禁止自主发挥**: 严格按照用户描述转换，不添加任何个人理解或补充。
-
----
-### **# 示例 (简洁自然语言)**
-
-#### **示例 1: 简单场景描述**
-*   **用户输入**: "画一个女孩在雨中哭泣"
-*   **输出**: `girl crying in rain, {{{{{{{{{{solo}}}}}}}}}}, 1girl`
-
-#### **示例 2: 角色 + 用户具体描述**
-*   **用户输入**: "画雷姆穿着白色连衣裙站在花园里"
-*   **输出**: `rem (re zero) in white dress, standing in garden, {{{{{{{{{{solo}}}}}}}}}}, 1girl`
-
-#### **示例 3: 自然语言场景**
-*   **用户输入**: "画一个宇航员在红色星球上发现发光的花"
-*   **输出**: `astronaut discovering glowing flower on red planet, {{{{{{{{{{solo}}}}}}}}}}, 1girl`
-
-#### **示例 4: 角色但无额外描述**
-*   **用户输入**: "画初音未来"
-*   **输出**: `hatsune miku (vocaloid), {{{{{{{{{{solo}}}}}}}}}}, 1girl`
-
-#### **示例 5: 非人物场景**
-*   **用户输入**: "画一个美丽的日落海滩"
-*   **输出**: `beautiful sunset beach, golden light on waves`
-
-#### **示例 6: 复杂场景简化**
-*   **用户输入**: "画一个穿着校服的女学生坐在教室里看书"
-*   **输出**: `schoolgirl in uniform reading book in classroom, {{{{{{{{{{solo}}}}}}}}}}, 1girl`
-""".strip()
-
-_PROMPT_GENERATOR_TEMPLATE = f"""
-{_PROMPT_RULES_TEXT}
-
-【用户描述】
-<<USER_REQUEST>>
-<<SELFIE_HINT>>
-""".strip()
 
 
 class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
@@ -220,7 +147,7 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
         generator_config = self._get_prompt_generator_config()
 
         # 准备提示词模板
-        prompt_template = generator_config.get("prompt_template") or _PROMPT_GENERATOR_TEMPLATE
+        prompt_template = generator_config.get("prompt_template") or PROMPT_GENERATOR_TEMPLATE
         prompt = self._render_generator_prompt(prompt_template, request_text, selfie_mode)
 
         # 获取 LLM 模型配置
@@ -289,10 +216,48 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
         if not prompt:
             return ""
         cleaned = prompt.strip()
+
+        # 处理代码块包裹
         if cleaned.startswith("```") and cleaned.endswith("```"):
-            cleaned = cleaned.strip("`\n ")
+            cleaned = cleaned[3:-3].strip()
+            # 移除可能的语言标识如 ```text
+            if cleaned and not cleaned[0].isalnum() and cleaned[0] not in "{[(":
+                pass  # 保持原样
+            elif "\n" in cleaned:
+                first_line, rest = cleaned.split("\n", 1)
+                # 如果第一行看起来像语言标识（纯字母且较短）
+                if first_line.strip().isalpha() and len(first_line.strip()) < 15:
+                    cleaned = rest.strip()
+
+        # 处理单行代码包裹
+        if cleaned.startswith("`") and cleaned.endswith("`") and cleaned.count("`") == 2:
+            cleaned = cleaned[1:-1].strip()
+
+        # 处理引号包裹
         if cleaned.startswith(("'", '"')) and cleaned.endswith(("'", '"')) and len(cleaned) >= 2:
             cleaned = cleaned[1:-1].strip()
+
+        # 处理常见前缀（不区分大小写）
+        prefix_patterns = [
+            r"^(?:output|result|prompt|here(?:'s| is)(?: the)?(?: prompt)?)\s*[:：]\s*",
+            r"^(?:the )?(?:generated )?prompt\s*(?:is|:)\s*",
+        ]
+        for pattern in prefix_patterns:
+            cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE).strip()
+
+        # 如果是多行，只取第一行有效内容（提示词通常是单行）
+        if "\n" in cleaned:
+            lines = [line.strip() for line in cleaned.split("\n") if line.strip()]
+            # 过滤掉看起来像解释说明的行
+            valid_lines = []
+            for line in lines:
+                # 跳过以解释性词语开头的行
+                if re.match(r"^(note|explanation|this|i |the above|here)", line, re.IGNORECASE):
+                    continue
+                valid_lines.append(line)
+            if valid_lines:
+                cleaned = valid_lines[0]
+
         return cleaned
 
     def _get_prompt_generator_config(self) -> Dict[str, Any]:

@@ -12,110 +12,15 @@ from .nai_web_client import NaiWebClient
 from .auto_recall_mixin import AutoRecallMixin
 from .image_url_helper import save_base64_image_to_file
 from .model_config_mixin import ModelConfigMixin
+from .prompt_rules import PROMPT_GENERATOR_TEMPLATE
 
 logger = get_logger("nai_pic_plugin")
-
-_PROMPT_RULES_TEXT = """
-# 角色指令：你是一位专业的AI绘画提示词转换专家，专门为 NovelAI 模型生成高质量的提示词。
-# 你的核心任务是：严格按照用户的描述，将其转换成简短有效的英文提示词，优先使用简洁的自然语言描述。
-
----
-### **处理要求 1: 提示词风格 (简洁自然语言)**
-*   优先使用简短的英文短语和精炼的自然语言描述，避免冗长句子。
-*   仅在描述角色名称和作品名称时使用关键词格式（如：rem (re zero)）。
-*   对于场景、动作、表情、服装等描述，使用简洁有效的英文短语。
-
-### **处理要求 2: 严格按用户描述转换**
-*   **严格翻译,不添加不删减**：将用户的中文描述准确翻译成英文,不添加用户未提到的内容,不删减、不修改、不"净化"用户原意（即便包含NSFW等内容）。
-*   **【重要】完整保留用户的英文tag**：如果用户已经提供了英文单词、英文短语或英文tag（如 "masterpiece", "1girl", "solo", "best quality" 等），**必须原封不动地保留这些英文内容**，不得删除、修改、替换或"优化"。
-*   **【重要】识别强调词并加权**：当用户使用"必须"、"一定"、"重点"、"务必"、"非常"、"特别"等强调词时，对相应的描述内容使用`{}`进行加权。例如"必须是红色头发"→`{red hair}`，"一定要微笑"→`{smiling}`。
-
-### **处理要求 3: 角色处理规则**
-*   **角色名称格式**: 当用户提到特定角色时，转换为标准格式：角色罗马音名称 (作品英文名)，如：rem (re zero)。
-*   **用户描述优先**: 严格按用户描述转换，不添加角色的默认特征（除非用户明确提到）。
-
-### **处理要求 4: 构图控制**
-*   除非用户明确要求多人场景,否则在涉及人物的描述中在**最前面**添加`{{{{{{{{{{solo}}}}}}}}}}`, `1girl`标签确保单人构图。
-*   如果用户没有要求绘制人物,则不添加任何人物相关标签。
-*   多人场景在最前面使用`2girls`、`3girls`等标签(不使用solo)。
-
-### **处理要求 5: 简洁有效原则**
-*   使用最精炼的词汇表达完整含义。
-*   避免重复和冗余描述。
-*   每个词汇都应该有明确的视觉表现作用。
-
-### **处理要求 6: 严格禁止**
-*   **禁止输出非提示词内容**: 只输出纯粹的英文提示词。
-*   **禁止添加质量词**: 不自动添加 masterpiece, best quality, 8k 等质量标签。
-*   **禁止自主发挥**: 严格按照用户描述转换，不添加任何个人理解或补充。
-
----
-### **# 示例**
-
-#### **示例 1: 简单场景描述**
-*   **用户输入**: "画一个女孩在雨中哭泣"
-*   **输出**: `{{{{{{{{{{solo}}}}}}}}}}, 1girl, girl crying in rain`
-
-#### **示例 2: 角色 + 用户具体描述**
-*   **用户输入**: "画雷姆穿着白色连衣裙站在花园里"
-*   **输出**: `{{{{{{{{{{solo}}}}}}}}}}, 1girl, rem (re zero) in white dress, standing in garden`
-
-#### **示例 3: 角色但无额外描述**
-*   **用户输入**: "画初音未来"
-*   **输出**: `{{{{{{{{{{solo}}}}}}}}}}, 1girl, hatsune miku (vocaloid)`
-
-#### **示例 4: 非人物场景**
-*   **用户输入**: "画一个美丽的日落海滩"
-*   **输出**: `beautiful sunset beach, golden light on waves`
-
-#### **示例 5: 用户提供英文tag**
-*   **用户输入**: "masterpiece, best quality, 1girl, 蕾姆穿着白色连衣裙"
-*   **输出**: `masterpiece, best quality, 1girl, {{{{{{{{{{solo}}}}}}}}}}, rem (re zero) in white dress`
-
-#### **示例 6: 混合中英文描述**
-*   **用户输入**: "画一个女孩在雨中, crying, wet clothes"
-*   **输出**: `{{{{{{{{{{solo}}}}}}}}}}, 1girl, girl in rain, crying, wet clothes`
-
-#### **示例 7: 用户提供完整英文提示词**
-*   **用户输入**: "solo, 1girl, long hair, blue eyes, standing in garden"
-*   **输出**: `solo, 1girl, long hair, blue eyes, standing in garden`
-
-#### **示例 8: 用户使用强调词**
-*   **用户输入**: "画蕾姆,必须是蓝色头发,一定要微笑"
-*   **输出**: `{{{{{{{{{{solo}}}}}}}}}}, 1girl, rem (re zero), {blue hair}, {smiling}`
-
-#### **示例 9: 英文tag + 强调词组合**
-*   **用户输入**: "masterpiece, 1girl, 画一个女孩,重点突出红色眼睛"
-*   **输出**: `masterpiece, 1girl, {{{{{{{{{{solo}}}}}}}}}}, girl, {red eyes}`
-
-#### **示例 10: 多人场景**
-*   **用户输入**: "画蕾姆和拉姆两个人站在一起"
-*   **输出**: `2girls, rem (re zero), ram (re zero), standing together`
-
-#### **示例 11: 上下文相关描述（简短但包含场景）**
-*   **用户输入**: "bot在洗澡时的自拍"
-*   **输出**: `{{{{{{{{{{solo}}}}}}}}}}, 1girl, girl taking selfie while bathing, bathroom, water, wet`
-
-#### **示例 12: 直接详细描述**
-*   **用户输入**: "画一张初音未来，穿着校服，白色长袜，在教室里"
-*   **输出**: `{{{{{{{{{{solo}}}}}}}}}}, 1girl, hatsune miku (vocaloid), school uniform, white thigh-highs, in classroom`
-""".strip()
-
-_PROMPT_GENERATOR_TEMPLATE = f"""
-{_PROMPT_RULES_TEXT}
-
-【用户描述】
-<<USER_REQUEST>>
-<<SELFIE_HINT>>
-""".strip()
 
 class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
     """NovelAI Web 图片生成动作"""
 
     # 激活设置
-    activation_type = ActionActivationType.LLM_JUDGE
-    focus_activation_type = ActionActivationType.LLM_JUDGE
-    normal_activation_type = ActionActivationType.KEYWORD
+    activation_type = ActionActivationType.ALWAYS
     mode_enable = ChatMode.ALL
     parallel_action = True
 
@@ -358,7 +263,7 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
             logger.warning(f"{self.log_prefix} 无法提取原始用户请求，提示词生成终止")
             return None
 
-        prompt_template = generator_config.get("prompt_template") or _PROMPT_GENERATOR_TEMPLATE
+        prompt_template = generator_config.get("prompt_template") or PROMPT_GENERATOR_TEMPLATE
         prompt = self._render_generator_prompt(prompt_template, raw_request, selfie_mode)
 
         model_config = self._resolve_llm_model_config(generator_config.get("model_name", ""))
@@ -391,24 +296,22 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
         return cleaned if cleaned else None
 
     def _extract_user_request_text(self) -> str:
-        """尝试从当前消息与reasoning中提取用户描述"""
-        candidates = []
+        """尝试从当前消息提取用户描述
 
+        优先级：
+        1. action_message 的原始文本（最可靠）
+        2. 不再使用 reasoning 等字段，避免提取到非用户原意内容
+        """
         if self.action_message:
+            # 优先使用处理后的纯文本
             for attr in ("processed_plain_text", "display_message"):
                 value = getattr(self.action_message, attr, None)
                 if isinstance(value, str) and value.strip():
-                    candidates.append(value.strip())
+                    return value.strip()
 
-        for extra in (
-            getattr(self, "reasoning", "") or "",
-            self.action_reasoning or "",
-            self.action_data.get("reason", ""),
-        ):
-            if isinstance(extra, str) and extra.strip():
-                candidates.append(extra.strip())
-
-        return candidates[0] if candidates else ""
+        # 不再从 reasoning 等字段回退，这些字段可能包含非用户原意的内容
+        logger.debug(f"{self.log_prefix} 无法从 action_message 提取用户请求")
+        return ""
 
     def _render_generator_prompt(self, template: str, original_request: str, selfie_mode: bool) -> str:
         """将占位符替换为实际内容"""
@@ -448,13 +351,52 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
 
     def _cleanup_llm_prompt(self, prompt: str) -> str:
         """清理LLM返回的提示词"""
+        import re
         if not prompt:
             return ""
         cleaned = prompt.strip()
+
+        # 处理代码块包裹
         if cleaned.startswith("```") and cleaned.endswith("```"):
-            cleaned = cleaned.strip("`\n ")
+            cleaned = cleaned[3:-3].strip()
+            # 移除可能的语言标识如 ```text
+            if cleaned and not cleaned[0].isalnum() and cleaned[0] not in "{[(":
+                pass  # 保持原样
+            elif "\n" in cleaned:
+                first_line, rest = cleaned.split("\n", 1)
+                # 如果第一行看起来像语言标识（纯字母且较短）
+                if first_line.strip().isalpha() and len(first_line.strip()) < 15:
+                    cleaned = rest.strip()
+
+        # 处理单行代码包裹
+        if cleaned.startswith("`") and cleaned.endswith("`") and cleaned.count("`") == 2:
+            cleaned = cleaned[1:-1].strip()
+
+        # 处理引号包裹
         if cleaned.startswith(("'", '"')) and cleaned.endswith(("'", '"')) and len(cleaned) >= 2:
             cleaned = cleaned[1:-1].strip()
+
+        # 处理常见前缀（不区分大小写）
+        prefix_patterns = [
+            r"^(?:output|result|prompt|here(?:'s| is)(?: the)?(?: prompt)?)\s*[:：]\s*",
+            r"^(?:the )?(?:generated )?prompt\s*(?:is|:)\s*",
+        ]
+        for pattern in prefix_patterns:
+            cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE).strip()
+
+        # 如果是多行，只取第一行有效内容（提示词通常是单行）
+        if "\n" in cleaned:
+            lines = [line.strip() for line in cleaned.split("\n") if line.strip()]
+            # 过滤掉看起来像解释说明的行
+            valid_lines = []
+            for line in lines:
+                # 跳过以解释性词语开头的行
+                if re.match(r"^(note|explanation|this|i |the above|here)", line, re.IGNORECASE):
+                    continue
+                valid_lines.append(line)
+            if valid_lines:
+                cleaned = valid_lines[0]
+
         return cleaned
 
     def _get_prompt_generator_config(self) -> Dict[str, Any]:
