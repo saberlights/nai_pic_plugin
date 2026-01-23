@@ -8,6 +8,8 @@
 - 📸 自拍模式：支持自动添加 Bot 形象特征，生成个性化自拍图片
 - ⚡ 自动撤回：可配置图片自动撤回，保护隐私
 - 🎨 模型切换：支持快速切换 NAI 3/4/4.5 等不同版本模型
+- 🖼️ 尺寸切换：支持快速切换竖图/横图/方图
+- 🎭 画师风格：支持多套画师串预设，可自定义命名
 - 🔒 权限控制：支持管理员模式，限制生图命令使用权限
 
 ## 功能特性
@@ -15,9 +17,15 @@
 - ✅ 支持 NovelAI Web API（std.loliyc.com 等网页代理接口）
 - ✅ **智能提示词生成**：使用 LLM 自动将自然语言描述转换为优化的英文提示词
 - ✅ **命令模式**：`/nai` 命令支持直接输入中文描述，无需掌握 NAI 语法
+- ✅ **直接标签模式**：`/nai0` 命令直接使用英文标签生图，跳过 LLM 处理
 - ✅ **自拍模式**：支持自动添加自拍视角和 Bot 形象特征
 - ✅ **模型切换**：支持通过命令快速切换 NAI 3/f3/4/4.5 等模型（会话级别）
+- ✅ **尺寸切换**：支持通过 `/nai size` 命令快速切换竖图/横图/方图
+- ✅ **画师风格预设**：支持多套画师串预设，可自定义命名，通过 `/nai art` 切换
+- ✅ **提示词显示**：支持 `/nai pt on/off` 控制是否显示生成的提示词
 - ✅ **管理员权限控制**：支持开启管理员模式，限制生图命令仅管理员可用
+- ✅ **分版本配置**：NAI V3/V4/V4.5 各版本独立配置参数和画师串
+- ✅ **自定义 LLM 模型**：支持配置自定义 LLM 模型用于提示词生成
 - ✅ 使用 NAI 格式提示词（大括号权重语法）
 - ✅ 文生图功能
 - ✅ 支持多种采样器（k_euler, k_euler_ancestral 等）
@@ -52,15 +60,21 @@
    /nai 自拍，微笑
    ```
 
-3. （可选）切换模型：
+3. 或使用 `/nai0` 直接输入英文标签（跳过 LLM）：
    ```
-   /nai set 4.5    # 切换到 NAI 4.5
-   /nai set 3      # 切换到 NAI 3
+   /nai0 1girl, hatsune miku, smile, masterpiece
    ```
 
-4. （可选）开启自动撤回功能：
+4. （可选）切换模型/尺寸/画师风格：
    ```
-   /nai on
+   /nai set 4.5    # 切换到 NAI 4.5
+   /nai size 横    # 切换到横图
+   /nai art 2      # 切换到第2套画师风格
+   ```
+
+5. （可选）查看帮助：
+   ```
+   /nai help       # 查看所有命令帮助
    ```
 
 ## 配置
@@ -74,17 +88,53 @@ enabled = true  # 启用插件
 [model]
 name = "NovelAI Web (std.loliyc.com)"
 base_url = "https://std.loliyc.com"  # API 基础地址
-api_key = "STD-lpUNBA03q1KPHuXKumz"  # API Token
-model = "nai-diffusion-4-5-full"  # 模型名称
+api_key = "your-api-key"  # API Token
+default_model = "nai-diffusion-4-5-full"  # 默认模型名称
+```
 
-# NovelAI Web 专用参数
-nai_endpoint = "/generate"  # API 端点
-nai_size = "竖图"  # 图片尺寸
-nai_cfg = 0.0
-nai_noise_schedule = "karras"
+### 分版本模型配置
+
+插件支持为 NAI V3、V4、V4.5 分别配置参数。根据当前使用的模型自动加载对应配置：
+
+```toml
+# NAI V3 专用配置
+[model_nai3]
+nai_size = "832x1216"
 sampler = "k_euler_ancestral"
-num_inference_steps = 23
+num_inference_steps = 25
+guidance_scale = 3.5
+custom_prompt_add = "{masterpiece}, best quality, illustration"
+negative_prompt_add = "..."
+artist_presets = [
+  { name = "风格1", prompt = "artist:example1, artist:example2" },
+  { name = "风格2", prompt = "artist:example3, artist:example4" }
+]
+
+# NAI V4 专用配置
+[model_nai4]
+nai_size = "竖图"
+sampler = "k_euler_ancestral"
+num_inference_steps = 28
 guidance_scale = 5.0
+custom_prompt_add = ",masterpiece, best quality, absurdres"
+negative_prompt_add = "..."
+artist_presets = [
+  { name = "风格组合1", prompt = "1.2::artist1::, 1.0::artist2::" },
+  { name = "风格组合2", prompt = "1.5::artist3::, 1.0::artist4::" }
+]
+
+# NAI V4.5 专用配置
+[model_nai4_5]
+nai_size = "竖图"
+sampler = "k_euler_ancestral"
+num_inference_steps = 28
+guidance_scale = 5.0
+custom_prompt_add = ",masterpiece, best quality, absurdres"
+negative_prompt_add = "..."
+artist_presets = [
+  { name = "channel风", prompt = "1.4::kazutake hazano::, 1.2::efe::, ..." },
+  { name = "简笔朴素", prompt = "1.2::artist:shion(mirudakemann)::, ..." }
+]
 ```
 
 ### 重要参数说明
@@ -92,14 +142,15 @@ guidance_scale = 5.0
 | 参数 | 说明 | 示例 |
 |------|------|------|
 | `base_url` | API 基础地址 | `https://std.loliyc.com` |
-| `api_key` | API Token（如需要） | `STD-lpUNBA03q1KPHuXKumz` |
-| `model` | NovelAI 默认模型名称 | `nai-diffusion-4-5-full` |
+| `api_key` | API Token（如需要） | `your-api-key` |
+| `default_model` | NovelAI 默认模型名称 | `nai-diffusion-4-5-full` |
 | `nai_size` | 图片尺寸 | `竖图`、`方图`、`1024x1024` |
 | `sampler` | 采样器 | `k_euler_ancestral` |
 | `num_inference_steps` | 推理步数 | `23` |
 | `guidance_scale` | 指导强度 | `5.0` |
+| `artist_presets` | 画师风格预设列表 | 见上方配置示例 |
 
-> **注意**：`model` 参数是**默认模型**，会话中可通过 `/nai set` 命令临时切换。程序重启后会回退到此默认值。
+> **注意**：`default_model` 参数是**默认模型**，会话中可通过 `/nai set` 命令临时切换。程序重启后会回退到此默认值。
 
 ### 自动撤回配置
 
@@ -129,6 +180,13 @@ default_admin_mode = false   # 是否默认启用管理员模式
 - `default_admin_mode` 设置默认状态，可通过 `/nai st/sp` 动态切换
 - 管理员模式是**会话级别**的（群聊/私聊独立配置）
 
+### 提示词显示配置
+
+```toml
+[prompt_show]
+enabled = false  # 是否默认启用提示词显示（使用 /nai pt on|off 可在运行时切换）
+```
+
 ### 提示词生成配置
 
 插件默认始终使用内置 LLM 生成英文提示词（即使 Planner 提供了 `description` 也会优先改写）。你可以通过 `[prompt_generator]` 区域进行控制：
@@ -139,13 +197,22 @@ model_name = ""          # 指定LLM模型代号，留空则自动选择
 temperature = 0.2        # LLM温度
 max_tokens = 200         # LLM输出上限
 # prompt_template = """自定义模板，支持 <<USER_REQUEST>> 和 <<SELFIE_HINT>> 占位符"""
+
+# 自定义模型配置（可选）
+# 如果配置了此项，将优先使用自定义模型，而不是系统模型
+[prompt_generator.custom_model]
+model_list = ["gpt-4o", "claude-3-5-sonnet"]  # 模型列表（按优先级排序）
+max_tokens = 20000
+temperature = 0.2
+slow_threshold = 30.0
+selection_strategy = "balance"  # balance（负载均衡）或 random（随机选择）
 ```
 
-> `prompt_template` 可选；默认会使用与旧版 `description` 完全一致的生成规则，并且会把用户描述按照“主体→视角→服装→动作→环境→氛围→细节”的顺序重排成结构化文本，再交给 LLM。`<<STRUCTURED_REQUEST>>` 会注入这些槽位内容，`<<USER_REQUEST>>` 则是未经处理的原文，`<<SELFIE_HINT>>` 仅在自拍模式下插入额外指令。
+> `prompt_template` 可选；默认会使用与旧版 `description` 完全一致的生成规则，并且会把用户描述按照"主体→视角→服装→动作→环境→氛围→细节"的顺序重排成结构化文本，再交给 LLM。`<<STRUCTURED_REQUEST>>` 会注入这些槽位内容，`<<USER_REQUEST>>` 则是未经处理的原文，`<<SELFIE_HINT>>` 仅在自拍模式下插入额外指令。
 
 ## 使用方法
 
-本插件支持两种使用方式：
+本插件支持多种使用方式：
 
 ### 1. 命令模式（推荐）
 
@@ -171,7 +238,26 @@ Bot: [生成Bot自拍风格的图片]
 - 支持自拍模式（描述中包含"自拍"或"selfie"）
 - 自动按照 NovelAI 推荐顺序整理提示词
 
-### 2. 关键词触发模式
+### 2. 直接标签模式
+
+使用 `/nai0` 命令，直接输入英文标签，跳过 LLM 处理，适合熟悉 NAI 提示词的高级用户：
+
+```
+# 直接使用英文标签
+用户: /nai0 1girl, hatsune miku, smile, masterpiece, best quality
+Bot: [直接使用提示词生成图片]
+
+# 使用 NAI 权重语法
+用户: /nai0 {{{masterpiece}}}, {{1girl}}, {{blue hair}}, maid outfit
+Bot: [直接使用提示词生成图片]
+```
+
+**直接标签模式特点**：
+- 跳过 LLM 处理，直接使用输入的标签
+- 适合熟悉 NAI 提示词语法的用户
+- 可以精确控制提示词内容和权重
+
+### 3. 关键词触发模式
 
 在对话中使用触发关键词，支持自然语言和手动 NAI 格式：
 
@@ -218,6 +304,85 @@ Bot: ✅ 已在群聊中开启NAI图片自动撤回功能
 Bot: ✅ 已在群聊中关闭NAI图片自动撤回功能
      💡 使用 /nai on 可重新开启
 ```
+
+### 尺寸切换功能
+
+支持快速切换图片尺寸（会话级别）：
+
+```
+# 查看当前尺寸和可用尺寸列表
+用户: /nai size
+Bot: 当前使用默认配置尺寸
+
+     可用尺寸:
+     竖/v - 竖图 (832x1216)
+     横/h - 横图 (1216x832)
+     方/s - 方图 (1024x1024)
+
+     使用方法: /nai size <尺寸代号>
+
+# 切换到横图
+用户: /nai size 横
+Bot: ✅ 已切换到: 横图
+     尺寸: 1216x832
+
+# 切换到方图
+用户: /nai size s
+Bot: ✅ 已切换到: 方图
+     尺寸: 1024x1024
+```
+
+**注意事项**：
+- 尺寸切换是**会话级别**的（每个群聊/私聊独立设置）
+- 尺寸设置是**运行时临时的**，程序重启后会回退到配置文件中的默认尺寸
+- 所有用户都可以使用 `/nai size` 命令（管理员模式开启时除外）
+
+### 画师风格切换功能
+
+支持切换不同的画师风格预设（会话级别）：
+
+```
+# 查看当前画师串列表
+用户: /nai art
+Bot: 当前模型: NAI V4.5
+     当前画师串: #1 - channel风
+
+     可用画师串:
+     → 1. channel风
+       2. 简笔朴素1
+       3. Q风
+       4. 可爱的风格
+       ...
+
+     使用方法: /nai art <编号>
+
+# 切换到第2套画师风格
+用户: /nai art 2
+Bot: ✅ 已切换到画师串 #2
+     名称: 简笔朴素1
+     模型: NAI V4.5
+```
+
+**注意事项**：
+- 画师串是**按模型版本分开配置**的（V3/V4/V4.5 各有独立的画师串列表）
+- 画师串切换是**会话级别**的（每个群聊/私聊独立设置）
+- 所有用户都可以使用 `/nai art` 命令（管理员模式开启时除外）
+
+### 提示词显示功能
+
+支持在生图时显示生成的提示词：
+
+```
+# 开启提示词显示
+用户: /nai pt on
+Bot: ✅ 已开启提示词显示
+
+# 关闭提示词显示
+用户: /nai pt off
+Bot: ✅ 已关闭提示词显示
+```
+
+开启后，每次生图时会先显示 LLM 生成的提示词，方便调试和学习。
 
 ### 模型切换功能
 
@@ -299,6 +464,26 @@ Bot: ❌ 当前会话已开启管理员模式，仅管理员可使用此命令
 ### Q: 推荐使用哪种方式？
 A: 推荐使用 `/nai` 命令模式。它会自动使用 LLM 生成优化的提示词，无需掌握 NAI 提示词语法，更加简单易用。
 
+### Q: 如何使用直接标签模式？
+A: 使用 `/nai0` 命令，直接输入英文标签，例如：`/nai0 1girl, hatsune miku, smile`。这种模式跳过 LLM 处理，适合熟悉 NAI 提示词的用户。
+
+### Q: 如何切换图片尺寸？
+A: 使用 `/nai size <尺寸代号>` 命令：
+- `竖` 或 `v` - 竖图 (832x1216)
+- `横` 或 `h` - 横图 (1216x832)
+- `方` 或 `s` - 方图 (1024x1024)
+
+尺寸切换是会话级别的，重启后会恢复到配置文件中的默认尺寸。
+
+### Q: 如何切换画师风格？
+A: 使用 `/nai art` 查看当前模型的画师串列表，然后使用 `/nai art <编号>` 切换。画师串是按模型版本分开配置的，切换模型后画师串列表也会变化。
+
+### Q: 如何显示生成的提示词？
+A: 使用 `/nai pt on` 开启提示词显示，生图时会先显示 LLM 生成的提示词。使用 `/nai pt off` 关闭。
+
+### Q: 如何查看所有命令帮助？
+A: 使用 `/nai help` 命令查看完整的命令帮助信息。
+
 ### Q: 如何使用自拍模式？
 A: 在 `/nai` 命令描述中包含"自拍"或"selfie"关键词即可，例如：`/nai 自拍，微笑`。自拍模式会自动添加配置文件中 `selfie_prompt_add` 设置的 Bot 形象特征和自拍视角。
 
@@ -324,6 +509,7 @@ A: 在配置文件的 `[prompt_generator]` 区域可以：
 - 调整生成温度（`temperature`）
 - 设置最大 token 数（`max_tokens`）
 - 自定义提示词生成模板（`prompt_template`）
+- 配置自定义 LLM 模型（`[prompt_generator.custom_model]`）
 
 ### Q: 如何切换生图模型？
 A: 使用 `/nai set <模型代号>` 命令，支持的模型代号：
@@ -350,6 +536,17 @@ GPL-v3.0-or-later
 Rabbit
 
 ## 更新日志
+
+### v1.2.0 (2025-01-23)
+- 新增 `/nai0` 直接标签模式，跳过 LLM 处理
+- 新增 `/nai size` 尺寸切换命令（竖/横/方）
+- 新增 `/nai art` 画师风格切换命令
+- 新增 `/nai pt on/off` 提示词显示控制命令
+- 新增 `/nai help` 帮助命令
+- 新增分版本模型配置（NAI V3/V4/V4.5 独立配置）
+- 新增画师串预设命名功能
+- 新增自定义 LLM 模型配置支持
+- 优化提示词生成模板
 
 ### v1.1.0 (2025-12-04)
 - 新增模型切换功能（`/nai set` 命令）
