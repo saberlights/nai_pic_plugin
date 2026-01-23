@@ -181,6 +181,10 @@ class NaiAdminControlCommand(BaseCommand):
 /nai on - 开启图片自动撤回功能
 /nai off - 关闭图片自动撤回功能
 
+【提示词显示】
+/nai pt on - 开启提示词显示（生图时显示生成的提示词）
+/nai pt off - 关闭提示词显示
+
 【管理员功能】（仅管理员可用）
 /nai st - 开启管理员模式（限制所有命令仅管理员使用）
 /nai sp - 关闭管理员模式（所有人可用）

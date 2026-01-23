@@ -24,7 +24,7 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
 
     command_name = "nai_draw"
     command_description = "使用自然语言描述生成图片，例如：/nai 画一张初音未来"
-    command_pattern = r"(?:.*，说：\s*)?/nai\s+(?P<description>.+)$"
+    command_pattern = r"(?:.*，说：\s*)?/nai\s+(?!on$|off$|st$|sp$|set|art|size|help|pt\s)(?P<description>.+)$"
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -59,6 +59,10 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
             return False, "提示词生成失败", True
 
         logger.info(f"{self.log_prefix} 生成的提示词: {generated_prompt}")
+
+        # 检查是否需要显示提示词
+        if self._is_prompt_show_enabled():
+            await self.send_text(f"📝 提示词:\n{generated_prompt}", storage_message=False)
 
         # 处理自拍模式
         if selfie_mode:
@@ -192,6 +196,29 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
 
     def _resolve_llm_model_config(self, preferred_name: str):
         """获取可用的 LLM 模型配置"""
+        # 首先检查是否有自定义模型配置
+        generator_config = self._get_prompt_generator_config()
+        custom_model = generator_config.get("custom_model")
+
+        if custom_model and isinstance(custom_model, dict):
+            model_list = custom_model.get("model_list", [])
+            if model_list:
+                # 使用自定义模型配置创建 TaskConfig
+                from src.config.api_ada_configs import TaskConfig
+                try:
+                    custom_task_config = TaskConfig(
+                        model_list=model_list if isinstance(model_list, list) else [model_list],
+                        max_tokens=custom_model.get("max_tokens", 1024),
+                        temperature=custom_model.get("temperature", 0.3),
+                        slow_threshold=custom_model.get("slow_threshold", 30.0),
+                        selection_strategy=custom_model.get("selection_strategy", "balance")
+                    )
+                    logger.info(f"{self.log_prefix} 使用自定义模型配置: {model_list}")
+                    return custom_task_config
+                except Exception as e:
+                    logger.warning(f"{self.log_prefix} 自定义模型配置创建失败: {e}，回退到系统模型")
+
+        # 回退到系统模型
         models = llm_api.get_available_models()
         if not models:
             return None
@@ -245,18 +272,33 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
         for pattern in prefix_patterns:
             cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE).strip()
 
-        # 如果是多行，只取第一行有效内容（提示词通常是单行）
+        # 处理多行内容
         if "\n" in cleaned:
             lines = [line.strip() for line in cleaned.split("\n") if line.strip()]
-            # 过滤掉看起来像解释说明的行
-            valid_lines = []
-            for line in lines:
-                # 跳过以解释性词语开头的行
-                if re.match(r"^(note|explanation|this|i |the above|here)", line, re.IGNORECASE):
-                    continue
-                valid_lines.append(line)
-            if valid_lines:
-                cleaned = valid_lines[0]
+
+            # 检测是否为多人场景分段格式（包含 | 分隔符）
+            has_multi_person_format = any(line.startswith("|") for line in lines)
+
+            if has_multi_person_format:
+                # 多人场景：保留所有有效行，用换行符连接
+                valid_lines = []
+                for line in lines:
+                    # 跳过以解释性词语开头的行
+                    if re.match(r"^(note|explanation|this|i |the above|here)", line, re.IGNORECASE):
+                        continue
+                    valid_lines.append(line)
+                if valid_lines:
+                    cleaned = "\n".join(valid_lines)
+            else:
+                # 单人场景：只取第一行有效内容
+                valid_lines = []
+                for line in lines:
+                    # 跳过以解释性词语开头的行
+                    if re.match(r"^(note|explanation|this|i |the above|here)", line, re.IGNORECASE):
+                        continue
+                    valid_lines.append(line)
+                if valid_lines:
+                    cleaned = valid_lines[0]
 
         return cleaned
 
@@ -297,6 +339,31 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
         """检查是否启用自动撤回"""
         from .nai_recall_command import NaiRecallControlCommand
         return NaiRecallControlCommand.is_recall_enabled(platform, chat_id, self.get_config)
+
+    def _is_prompt_show_enabled(self) -> bool:
+        """检查是否启用提示词显示"""
+        try:
+            from .nai_prompt_show_command import NaiPromptShowCommand
+
+            if not self.message or not getattr(self.message, "message_info", None):
+                return False
+
+            message_info = self.message.message_info
+            platform = getattr(message_info, "platform", "")
+            group_info = getattr(message_info, "group_info", None)
+            user_info = getattr(message_info, "user_info", None)
+
+            if group_info and getattr(group_info, "group_id", None):
+                chat_id = group_info.group_id
+            elif user_info and getattr(user_info, "user_id", None):
+                chat_id = user_info.user_id
+            else:
+                return False
+
+            return NaiPromptShowCommand.is_prompt_show_enabled(platform, chat_id, self.get_config)
+        except Exception as e:
+            logger.error(f"{self.log_prefix} 检查提示词显示状态时出错: {e}")
+            return False
 
     def _check_user_permission(self) -> bool:
         """检查当前用户是否有权限使用生图命令"""

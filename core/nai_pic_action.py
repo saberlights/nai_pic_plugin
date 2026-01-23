@@ -105,6 +105,10 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
         if generated_prompt:
             description = generated_prompt.strip()
             logger.info(f"{self.log_prefix} 已通过LLM自动生成提示词: {description}")
+
+            # 检查是否需要显示提示词
+            if self._is_prompt_show_enabled():
+                await self.send_text(f"📝 提示词:\n{description}", storage_message=False)
         elif description:
             logger.info(f"{self.log_prefix} 使用Planner提供的提示词（LLM提示词生成被禁用或失败）")
         else:
@@ -241,6 +245,20 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
         from .nai_recall_command import NaiRecallControlCommand
         return NaiRecallControlCommand.is_recall_enabled(platform, chat_id, self.get_config)
 
+    def _is_prompt_show_enabled(self) -> bool:
+        """检查是否启用提示词显示"""
+        try:
+            from .nai_prompt_show_command import NaiPromptShowCommand
+
+            platform, chat_id, _ = self._get_chat_identity()
+            if not platform or not chat_id:
+                return False
+
+            return NaiPromptShowCommand.is_prompt_show_enabled(platform, chat_id, self.get_config)
+        except Exception as e:
+            logger.error(f"{self.log_prefix} 检查提示词显示状态时出错: {e}")
+            return False
+
     def _normalize_bool(self, value: Any) -> bool:
         """将可能的配置值转为布尔类型"""
         if isinstance(value, bool):
@@ -327,6 +345,29 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
 
     def _resolve_llm_model_config(self, preferred_name: str):
         """根据配置选择可用LLM模型"""
+        # 首先检查是否有自定义模型配置
+        generator_config = self._get_prompt_generator_config()
+        custom_model = generator_config.get("custom_model")
+
+        if custom_model and isinstance(custom_model, dict):
+            model_list = custom_model.get("model_list", [])
+            if model_list:
+                # 使用自定义模型配置创建 TaskConfig
+                from src.config.api_ada_configs import TaskConfig
+                try:
+                    custom_task_config = TaskConfig(
+                        model_list=model_list if isinstance(model_list, list) else [model_list],
+                        max_tokens=custom_model.get("max_tokens", 1024),
+                        temperature=custom_model.get("temperature", 0.3),
+                        slow_threshold=custom_model.get("slow_threshold", 30.0),
+                        selection_strategy=custom_model.get("selection_strategy", "balance")
+                    )
+                    logger.info(f"{self.log_prefix} 提示词生成使用自定义模型配置: {model_list}")
+                    return custom_task_config
+                except Exception as e:
+                    logger.warning(f"{self.log_prefix} 自定义模型配置创建失败: {e}，回退到系统模型")
+
+        # 回退到系统模型
         models = llm_api.get_available_models()
         if not models:
             return None
@@ -384,18 +425,33 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
         for pattern in prefix_patterns:
             cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE).strip()
 
-        # 如果是多行，只取第一行有效内容（提示词通常是单行）
+        # 处理多行内容
         if "\n" in cleaned:
             lines = [line.strip() for line in cleaned.split("\n") if line.strip()]
-            # 过滤掉看起来像解释说明的行
-            valid_lines = []
-            for line in lines:
-                # 跳过以解释性词语开头的行
-                if re.match(r"^(note|explanation|this|i |the above|here)", line, re.IGNORECASE):
-                    continue
-                valid_lines.append(line)
-            if valid_lines:
-                cleaned = valid_lines[0]
+
+            # 检测是否为多人场景分段格式（包含 | 分隔符）
+            has_multi_person_format = any(line.startswith("|") for line in lines)
+
+            if has_multi_person_format:
+                # 多人场景：保留所有有效行，用换行符连接
+                valid_lines = []
+                for line in lines:
+                    # 跳过以解释性词语开头的行
+                    if re.match(r"^(note|explanation|this|i |the above|here)", line, re.IGNORECASE):
+                        continue
+                    valid_lines.append(line)
+                if valid_lines:
+                    cleaned = "\n".join(valid_lines)
+            else:
+                # 单人场景：只取第一行有效内容
+                valid_lines = []
+                for line in lines:
+                    # 跳过以解释性词语开头的行
+                    if re.match(r"^(note|explanation|this|i |the above|here)", line, re.IGNORECASE):
+                        continue
+                    valid_lines.append(line)
+                if valid_lines:
+                    cleaned = valid_lines[0]
 
         return cleaned
 

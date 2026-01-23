@@ -10,6 +10,7 @@ from .core.nai_recall_command import NaiRecallControlCommand
 from .core.nai_draw_command import NaiDrawCommand
 from .core.nai_0_draw_command import Nai0DrawCommand
 from .core.nai_admin_command import NaiAdminControlCommand
+from .core.nai_prompt_show_command import NaiPromptShowCommand
 
 
 @register_plugin
@@ -35,7 +36,9 @@ class NaiPicPlugin(BasePlugin):
         "components": "组件配置",
         "auto_recall": "自动撤回配置",
         "admin": "管理员权限配置",
+        "prompt_show": "提示词显示配置",
         "prompt_generator": "提示词生成配置",
+        "prompt_generator.custom_model": "自定义LLM模型配置（支持多模型、负载均衡）",
         "prompt_fallback": "提示词生成配置（兼容旧配置名）",
     }
 
@@ -365,6 +368,13 @@ class NaiPicPlugin(BasePlugin):
                 description="是否默认启用管理员模式（开启后仅管理员可使用 /nai 生图命令）"
             )
         },
+        "prompt_show": {
+            "enabled": ConfigField(
+                type=bool,
+                default=False,
+                description="是否默认启用提示词显示（使用 /nai pt on|off 可在运行时切换）"
+            )
+        },
         "prompt_generator": {
             "model_name": ConfigField(
                 type=str,
@@ -378,13 +388,24 @@ class NaiPicPlugin(BasePlugin):
             ),
             "max_tokens": ConfigField(
                 type=int,
-                default=200,
+                default=500,
                 description="提示词生成LLM响应的最大token"
             ),
             "prompt_template": ConfigField(
                 type=str,
                 default="",
                 description="自定义提示词生成模板，支持<<USER_REQUEST>>和<<SELFIE_HINT>>占位符"
+            ),
+            "custom_model": ConfigField(
+                type=dict,
+                default={
+                    "model_list": [],
+                    "max_tokens": 500,
+                    "temperature": 0.2,
+                    "slow_threshold": 30.0,
+                    "selection_strategy": "balance"
+                },
+                description="自定义模型配置（可选），model_list 中的模型名称必须是系统 model_config 中已定义的模型"
             )
         },
         "prompt_fallback": {  # 兼容旧配置名
@@ -400,7 +421,7 @@ class NaiPicPlugin(BasePlugin):
             ),
             "max_tokens": ConfigField(
                 type=int,
-                default=200,
+                default=500,
                 description="[已兼容] 提示词生成LLM响应的最大token"
             ),
             "prompt_template": ConfigField(
@@ -419,4 +440,5 @@ class NaiPicPlugin(BasePlugin):
         components.append((NaiAdminControlCommand.get_command_info(), NaiAdminControlCommand))
         components.append((NaiDrawCommand.get_command_info(), NaiDrawCommand))
         components.append((Nai0DrawCommand.get_command_info(), Nai0DrawCommand))
+        components.append((NaiPromptShowCommand.get_command_info(), NaiPromptShowCommand))
         return components
