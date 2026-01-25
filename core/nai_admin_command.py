@@ -185,6 +185,11 @@ class NaiAdminControlCommand(BaseCommand):
 /nai pt on - 开启提示词显示（生图时显示生成的提示词）
 /nai pt off - 关闭提示词显示
 
+【NSFW过滤】
+/nai nsfw - 查看当前NSFW过滤状态
+/nai nsfw on - 开启NSFW过滤（禁止生成成人内容）
+/nai nsfw off - 关闭NSFW过滤（允许生成成人内容）
+
 【管理员功能】（仅管理员可用）
 /nai st - 开启管理员模式（限制所有命令仅管理员使用）
 /nai sp - 关闭管理员模式（所有人可用）

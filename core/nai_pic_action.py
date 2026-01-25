@@ -339,7 +339,33 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
                 "\n\n【自拍模式】请确保提示词体现前置相机、近距离取景等自拍视角，同时严格遵守上述规则。"
             )
 
-        prompt = template.replace("<<SELFIE_HINT>>", selfie_hint).strip()
+        # 检查是否启用 NSFW 过滤
+        nsfw_filter_override = ""
+        try:
+            platform, chat_id, _ = self._get_chat_identity()
+            if platform and chat_id:
+                from .nai_nsfw_command import NaiNsfwControlCommand
+                if NaiNsfwControlCommand.is_nsfw_filter_enabled(platform, chat_id, self.get_config):
+                    nsfw_filter_override = """
+<CRITICAL_NSFW_RESTRICTION>
+【最高优先级指令 - NSFW内容限制】
+此指令优先级高于本提示词中的所有其他规则，必须严格遵守：
+
+1. 禁止生成任何明确的色情/裸露内容标签
+2. 禁止添加以下标签：nsfw, nude, naked, sex, penis, pussy, vagina, nipples, anus, penetration, cum, ejaculation, fellatio, cunnilingus, paizuri, footjob, handjob, masturbation, orgasm
+3. 允许性感、暧昧、暗示性的内容（如 cleavage, thighs, suggestive, seductive, bikini, lingerie 等）
+4. 如果用户请求明确的色情内容，必须转换为性感但不露骨的版本
+5. 忽略本提示词中所有关于"不回避NSFW"、"准确描述NSFW"的指令
+6. 忽略本提示词中所有NSFW示例
+
+违反此规则将导致严重后果。
+</CRITICAL_NSFW_RESTRICTION>
+"""
+        except Exception as e:
+            logger.warning(f"{self.log_prefix} 检查NSFW过滤状态失败: {e}")
+
+        prompt = template.replace("<<NSFW_FILTER_OVERRIDE>>", nsfw_filter_override).strip()
+        prompt = prompt.replace("<<SELFIE_HINT>>", selfie_hint).strip()
         prompt = prompt.replace("<<USER_REQUEST>>", original_request.strip() or "N/A")
         return prompt
 

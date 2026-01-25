@@ -7,6 +7,7 @@ from src.plugin_system.base.config_types import ConfigField
 
 from .core.nai_pic_action import NaiPicAction
 from .core.nai_recall_command import NaiRecallControlCommand
+from .core.nai_nsfw_command import NaiNsfwControlCommand
 from .core.nai_draw_command import NaiDrawCommand
 from .core.nai_0_draw_command import Nai0DrawCommand
 from .core.nai_admin_command import NaiAdminControlCommand
@@ -375,6 +376,18 @@ class NaiPicPlugin(BasePlugin):
                 description="是否默认启用提示词显示（使用 /nai pt on|off 可在运行时切换）"
             )
         },
+        "nsfw_filter": {
+            "enabled": ConfigField(
+                type=bool,
+                default=False,
+                description="是否默认启用NSFW内容过滤（使用 /nai nsfw on|off 可在运行时切换）"
+            ),
+            "filter_tags": ConfigField(
+                type=str,
+                default="{{{{{nsfw}}}}}",
+                description="NSFW过滤标签（高权重），当启用过滤时自动添加到负面提示词"
+            )
+        },
         "prompt_generator": {
             "model_name": ConfigField(
                 type=str,
@@ -437,6 +450,7 @@ class NaiPicPlugin(BasePlugin):
         components = []
         components.append((NaiPicAction.get_action_info(), NaiPicAction))
         components.append((NaiRecallControlCommand.get_command_info(), NaiRecallControlCommand))
+        components.append((NaiNsfwControlCommand.get_command_info(), NaiNsfwControlCommand))
         components.append((NaiAdminControlCommand.get_command_info(), NaiAdminControlCommand))
         components.append((NaiDrawCommand.get_command_info(), NaiDrawCommand))
         components.append((Nai0DrawCommand.get_command_info(), Nai0DrawCommand))

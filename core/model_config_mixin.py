@@ -79,6 +79,25 @@ class ModelConfigMixin:
         except Exception as exc:
             logger.warning(f"{self._log_prefix} 获取用户选定尺寸失败: {exc}")
 
+        # 应用NSFW过滤
+        try:
+            if platform and chat_id:
+                from .nai_nsfw_command import NaiNsfwControlCommand
+
+                if NaiNsfwControlCommand.is_nsfw_filter_enabled(
+                    platform, chat_id, self.get_config  # type: ignore[attr-defined]
+                ):
+                    # 获取过滤标签
+                    nsfw_tags = self.get_config("nsfw_filter.filter_tags", "{{{{{nsfw}}}}}")  # type: ignore[attr-defined]
+                    current_negative = merged_config.get("negative_prompt_add", "")
+                    if current_negative:
+                        merged_config["negative_prompt_add"] = f"{nsfw_tags}, {current_negative}"
+                    else:
+                        merged_config["negative_prompt_add"] = nsfw_tags
+                    logger.info(f"{self._log_prefix} 已应用NSFW过滤: {nsfw_tags}")
+        except Exception as exc:
+            logger.warning(f"{self._log_prefix} 应用NSFW过滤失败: {exc}")
+
         return merged_config
 
     def _get_version_config(self, model_name: str) -> Dict[str, Any]:
