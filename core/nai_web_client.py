@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import requests
 import urllib3
@@ -35,9 +36,9 @@ class NaiWebClient:
         self.session = requests.Session()
         self.session.mount('https://', SSLAdapter())
 
-    def generate_image(self, prompt: str, model_config: Dict[str, Any], size: str = None,
+    async def generate_image(self, prompt: str, model_config: Dict[str, Any], size: str = None,
                       input_image_base64: str = None) -> Tuple[bool, str]:
-        """调用网页式的NovelAI接口（std.loliyc.com风格）生成图片"""
+        """调用网页式的NovelAI接口（std.loliyc.com风格）生成图片（异步，不阻塞事件循环）"""
         try:
             if input_image_base64:
                 logger.warning(f"{self.log_prefix} (NaiWeb) 暂不支持图生图请求")
@@ -106,16 +107,13 @@ class NaiWebClient:
                     if v not in (None, ""):
                         params[k] = v
 
-            request_kwargs = {
-                "url": url,
-                "params": params,
-                "timeout": 120,
-                "verify": False  # 禁用 SSL 证书验证
-            }
-
             logger.info(f"{self.log_prefix} (NaiWeb) 请求URL: {url}")
             logger.debug(f"{self.log_prefix} (NaiWeb) 参数: tag长度={len(params.get('tag', ''))}, model={params.get('model')}, size={params.get('size')}")
-            response = self.session.get(**request_kwargs)
+
+            # 在线程池中执行阻塞的 HTTP 请求，避免阻塞事件循环
+            response = await asyncio.to_thread(
+                self._send_request, url, params
+            )
 
             if response.status_code != 200:
                 logger.error(f"{self.log_prefix} (NaiWeb) HTTP错误 {response.status_code}: {response.text[:200]}")
@@ -148,3 +146,12 @@ class NaiWebClient:
         except Exception as e:
             logger.error(f"{self.log_prefix} (NaiWeb) 请求异常: {e!r}", exc_info=True)
             return False, f"Nai网页接口请求失败: {str(e)[:100]}"
+
+    def _send_request(self, url: str, params: Dict[str, Any]):
+        """发送 HTTP 请求（同步方法，由 asyncio.to_thread 调用）"""
+        return self.session.get(
+            url=url,
+            params=params,
+            timeout=120,
+            verify=False
+        )

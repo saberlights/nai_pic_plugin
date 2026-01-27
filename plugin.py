@@ -12,6 +12,7 @@ from .core.nai_draw_command import NaiDrawCommand
 from .core.nai_0_draw_command import Nai0DrawCommand
 from .core.nai_admin_command import NaiAdminControlCommand
 from .core.nai_prompt_show_command import NaiPromptShowCommand
+from .core.nai_artist_command import NaiArtistCommand
 
 
 @register_plugin
@@ -40,6 +41,8 @@ class NaiPicPlugin(BasePlugin):
         "prompt_show": "提示词显示配置",
         "prompt_generator": "提示词生成配置",
         "prompt_generator.custom_model": "自定义LLM模型配置（支持多模型、负载均衡）",
+        "artist_generator": "画师串生成配置",
+        "artist_generator.custom_model": "画师串生成自定义LLM模型配置",
         "prompt_fallback": "提示词生成配置（兼容旧配置名）",
     }
 
@@ -421,6 +424,39 @@ class NaiPicPlugin(BasePlugin):
                 description="自定义模型配置（可选），model_list 中的模型名称必须是系统 model_config 中已定义的模型"
             )
         },
+        "artist_generator": {
+            "model_name": ConfigField(
+                type=str,
+                default="",
+                description="画师串生成使用的LLM模型代号，留空则自动选择"
+            ),
+            "temperature": ConfigField(
+                type=float,
+                default=0.3,
+                description="画师串生成LLM的温度设置"
+            ),
+            "random_temperature": ConfigField(
+                type=float,
+                default=0.7,
+                description="随机模式下的温度设置"
+            ),
+            "max_tokens": ConfigField(
+                type=int,
+                default=200,
+                description="画师串生成LLM响应的最大token"
+            ),
+            "custom_model": ConfigField(
+                type=dict,
+                default={
+                    "model_list": [],
+                    "max_tokens": 200,
+                    "temperature": 0.3,
+                    "slow_threshold": 30.0,
+                    "selection_strategy": "balance"
+                },
+                description="自定义模型配置（可选），model_list 中的模型名称必须是系统 model_config 中已定义的模型"
+            )
+        },
         "prompt_fallback": {  # 兼容旧配置名
             "model_name": ConfigField(
                 type=str,
@@ -455,4 +491,5 @@ class NaiPicPlugin(BasePlugin):
         components.append((NaiDrawCommand.get_command_info(), NaiDrawCommand))
         components.append((Nai0DrawCommand.get_command_info(), Nai0DrawCommand))
         components.append((NaiPromptShowCommand.get_command_info(), NaiPromptShowCommand))
+        components.append((NaiArtistCommand.get_command_info(), NaiArtistCommand))
         return components

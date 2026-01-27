@@ -64,8 +64,8 @@ class Nai0DrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
             await self.send_text(f"正在生成图片，请稍候...")
 
         try:
-            # 调用 API 生成图片
-            success, result = self.api_client.generate_image(
+            # 调用 API 生成图片（异步，不阻塞事件循环）
+            success, result = await self.api_client.generate_image(
                 prompt=prompt,
                 model_config=model_config,
                 size=image_size

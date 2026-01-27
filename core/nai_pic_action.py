@@ -150,8 +150,8 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
             await self.send_text(f"收到！正在使用 NovelAI Web 生成图片，请稍候...")
 
         try:
-            # 调用API客户端生成图片
-            success, result = self.api_client.generate_image(
+            # 调用API客户端生成图片（异步，不阻塞事件循环）
+            success, result = await self.api_client.generate_image(
                 prompt=description,
                 model_config=model_config,
                 size=image_size

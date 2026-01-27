@@ -24,7 +24,7 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
 
     command_name = "nai_draw"
     command_description = "使用自然语言描述生成图片，例如：/nai 画一张初音未来"
-    command_pattern = r"(?:.*，说：\s*)?/nai\s+(?!on$|off$|st$|sp$|set|art|size|help|pt\s)(?P<description>.+)$"
+    command_pattern = r"(?:.*，说：\s*)?/nai\s+(?!on$|off$|st$|sp$|set\b|art\b|artgen\b|artr$|artfix\b|size\b|help$|pt\s)(?P<description>.+)$"
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -83,8 +83,8 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
             await self.send_text(f"正在生成图片，请稍候...")
 
         try:
-            # 调用 API 生成图片
-            success, result = self.api_client.generate_image(
+            # 调用 API 生成图片（异步，不阻塞事件循环）
+            success, result = await self.api_client.generate_image(
                 prompt=generated_prompt,
                 model_config=model_config,
                 size=image_size
