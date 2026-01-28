@@ -5,14 +5,14 @@ from src.plugin_system.base.component_types import ComponentInfo
 from src.plugin_system import register_plugin
 from src.plugin_system.base.config_types import ConfigField
 
-from .core.nai_pic_action import NaiPicAction
-from .core.nai_recall_command import NaiRecallControlCommand
-from .core.nai_nsfw_command import NaiNsfwControlCommand
-from .core.nai_draw_command import NaiDrawCommand
-from .core.nai_0_draw_command import Nai0DrawCommand
-from .core.nai_admin_command import NaiAdminControlCommand
-from .core.nai_prompt_show_command import NaiPromptShowCommand
-from .core.nai_artist_command import NaiArtistCommand
+from .core.actions.nai_pic_action import NaiPicAction
+from .core.commands.nai_recall_command import NaiRecallControlCommand
+from .core.commands.nai_nsfw_command import NaiNsfwControlCommand
+from .core.commands.nai_draw_command import NaiDrawCommand
+from .core.commands.nai_0_draw_command import Nai0DrawCommand
+from .core.commands.nai_admin_command import NaiAdminControlCommand
+from .core.commands.nai_prompt_show_command import NaiPromptShowCommand
+from .core.commands.nai_artist_command import NaiArtistCommand
 
 
 @register_plugin
@@ -43,7 +43,6 @@ class NaiPicPlugin(BasePlugin):
         "prompt_generator.custom_model": "自定义LLM模型配置（支持多模型、负载均衡）",
         "artist_generator": "画师串生成配置",
         "artist_generator.custom_model": "画师串生成自定义LLM模型配置",
-        "prompt_fallback": "提示词生成配置（兼容旧配置名）",
     }
 
     # 配置Schema
@@ -418,8 +417,7 @@ class NaiPicPlugin(BasePlugin):
                     "model_list": [],
                     "max_tokens": 500,
                     "temperature": 0.2,
-                    "slow_threshold": 30.0,
-                    "selection_strategy": "balance"
+                    "slow_threshold": 30.0
                 },
                 description="自定义模型配置（可选），model_list 中的模型名称必须是系统 model_config 中已定义的模型"
             )
@@ -451,32 +449,9 @@ class NaiPicPlugin(BasePlugin):
                     "model_list": [],
                     "max_tokens": 200,
                     "temperature": 0.3,
-                    "slow_threshold": 30.0,
-                    "selection_strategy": "balance"
+                    "slow_threshold": 30.0
                 },
                 description="自定义模型配置（可选），model_list 中的模型名称必须是系统 model_config 中已定义的模型"
-            )
-        },
-        "prompt_fallback": {  # 兼容旧配置名
-            "model_name": ConfigField(
-                type=str,
-                default="",
-                description="[已兼容] 提示词生成使用的LLM模型代号，留空则自动选择"
-            ),
-            "temperature": ConfigField(
-                type=float,
-                default=0.2,
-                description="[已兼容] 提示词生成LLM的温度设置"
-            ),
-            "max_tokens": ConfigField(
-                type=int,
-                default=500,
-                description="[已兼容] 提示词生成LLM响应的最大token"
-            ),
-            "prompt_template": ConfigField(
-                type=str,
-                default="",
-                description="[已兼容] 自定义提示词生成模板，支持<<USER_REQUEST>>和<<SELFIE_HINT>>占位符"
             )
         },
     }

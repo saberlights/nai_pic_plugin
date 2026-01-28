@@ -1,20 +1,21 @@
 # -*- coding: utf-8 -*-
 """
 /nai nsfw 命令：NSFW内容过滤开关控制
+
+所有状态通过 session_state 管理
 """
 from typing import Tuple, Optional
 
 from src.plugin_system.base.base_command import BaseCommand
 from src.common.logger import get_logger
 
-logger = get_logger("nai_nsfw_command")
+from ..services.session_state import session_state
+
+logger = get_logger("nai_pic_plugin")
 
 
 class NaiNsfwControlCommand(BaseCommand):
     """NovelAI NSFW内容过滤控制命令"""
-
-    # 类级别的状态覆盖（运行时状态）
-    _nsfw_filter_overrides = {}
 
     command_name = "nai_nsfw_control_command"
     command_description = "NSFW内容过滤控制命令：/nai nsfw <on|off>"
@@ -22,36 +23,19 @@ class NaiNsfwControlCommand(BaseCommand):
 
     async def execute(self) -> Tuple[bool, Optional[str], bool]:
         """执行NSFW过滤控制命令"""
-        logger.info(f"{self.log_prefix} 执行NSFW过滤控制命令")
+        logger.info(f"{self.log_prefix} [NSFW过滤] /nai nsfw {self.matched_groups.get('action', '') or '查询'}")
 
-        # 获取匹配的参数
         action = (self.matched_groups.get("action") or "").strip().lower()
 
-        # 获取当前会话信息
-        if not self.message or not getattr(self.message, "message_info", None):
+        # 获取会话信息
+        platform, chat_id, chat_type = self._get_session_info()
+        if not platform or not chat_id:
             await self.send_text("❌ 无法获取会话信息", storage_message=False)
             return False, "无法获取会话信息", True
 
-        message_info = self.message.message_info
-        platform = getattr(message_info, "platform", "")
-        group_info = getattr(message_info, "group_info", None)
-        user_info = getattr(message_info, "user_info", None)
-
-        if group_info and getattr(group_info, "group_id", None):
-            chat_id = group_info.group_id
-            chat_type = "群聊"
-        elif user_info and getattr(user_info, "user_id", None):
-            chat_id = user_info.user_id
-            chat_type = "私聊"
-        else:
-            await self.send_text("❌ 无法识别聊天类型", storage_message=False)
-            return False, "无法识别聊天类型", True
-
-        current_chat_key = f"{platform}:{chat_id}"
-
         # 如果没有参数，显示当前状态
         if not action:
-            current_state = self.is_nsfw_filter_enabled(platform, chat_id, self.get_config)
+            current_state = session_state.is_nsfw_filter_enabled(platform, chat_id, self.get_config)
             state_text = "已开启" if current_state else "已关闭"
             await self.send_text(
                 f"当前NSFW过滤状态: {state_text}\n\n"
@@ -63,27 +47,23 @@ class NaiNsfwControlCommand(BaseCommand):
             return True, "显示NSFW过滤状态", True
 
         if action == "on":
-            # 开启NSFW过滤
-            self._nsfw_filter_overrides[current_chat_key] = True
+            session_state.set_nsfw_filter_enabled(platform, chat_id, True)
             await self.send_text(
                 f"✅ 已在{chat_type}中开启NSFW内容过滤\n"
                 f"🔒 生成的图片将避免包含成人内容\n"
                 f"💡 使用 /nai nsfw off 可关闭过滤",
                 storage_message=False
             )
-            logger.info(f"{self.log_prefix} {chat_type} {current_chat_key} 已开启NSFW过滤")
             return True, "NSFW过滤已开启", True
 
         elif action == "off":
-            # 关闭NSFW过滤
-            self._nsfw_filter_overrides[current_chat_key] = False
+            session_state.set_nsfw_filter_enabled(platform, chat_id, False)
             await self.send_text(
                 f"✅ 已在{chat_type}中关闭NSFW内容过滤\n"
                 f"🔓 生成的图片将不受NSFW限制\n"
                 f"💡 使用 /nai nsfw on 可重新开启",
                 storage_message=False
             )
-            logger.info(f"{self.log_prefix} {chat_type} {current_chat_key} 已关闭NSFW过滤")
             return True, "NSFW过滤已关闭", True
 
         else:
@@ -95,24 +75,29 @@ class NaiNsfwControlCommand(BaseCommand):
             )
             return False, "无效的操作参数", True
 
+    def _get_session_info(self) -> Tuple[str, str, str]:
+        """获取会话信息"""
+        if not self.message or not getattr(self.message, "message_info", None):
+            return "", "", ""
+
+        message_info = self.message.message_info
+        platform = getattr(message_info, "platform", "") or ""
+        group_info = getattr(message_info, "group_info", None)
+        user_info = getattr(message_info, "user_info", None)
+
+        if group_info and getattr(group_info, "group_id", None):
+            chat_id = str(group_info.group_id)
+            chat_type = "群聊"
+        elif user_info and getattr(user_info, "user_id", None):
+            chat_id = str(user_info.user_id)
+            chat_type = "私聊"
+        else:
+            return platform, "", ""
+
+        return platform, chat_id, chat_type
+
+    # 兼容性方法
     @classmethod
     def is_nsfw_filter_enabled(cls, platform: str, chat_id: str, get_config_func) -> bool:
-        """
-        检查指定会话是否启用了NSFW过滤
-
-        Args:
-            platform: 平台标识
-            chat_id: 会话ID
-            get_config_func: 获取配置的函数
-
-        Returns:
-            bool: 是否启用NSFW过滤
-        """
-        current_chat_key = f"{platform}:{chat_id}"
-
-        # 检查运行时覆盖
-        if current_chat_key in cls._nsfw_filter_overrides:
-            return cls._nsfw_filter_overrides[current_chat_key]
-
-        # 检查默认配置
-        return get_config_func("nsfw_filter.enabled", False)
+        """兼容方法：检查是否启用NSFW过滤"""
+        return session_state.is_nsfw_filter_enabled(platform, chat_id, get_config_func)

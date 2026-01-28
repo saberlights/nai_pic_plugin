@@ -10,11 +10,12 @@ from src.plugin_system.base.base_command import BaseCommand
 from src.common.logger import get_logger
 from src.plugin_system import llm_api
 
-from .nai_web_client import NaiWebClient
-from .auto_recall_mixin import AutoRecallMixin
-from .image_url_helper import save_base64_image_to_file
-from .model_config_mixin import ModelConfigMixin
-from .prompt_rules import PROMPT_GENERATOR_TEMPLATE
+from ..clients.nai_web_client import NaiWebClient
+from ..mixins.auto_recall_mixin import AutoRecallMixin
+from ..utils.image_url_helper import save_base64_image_to_file
+from ..mixins.model_config_mixin import ModelConfigMixin
+from ..rules.prompt_rules import PROMPT_GENERATOR_TEMPLATE
+from ..services.session_state import session_state
 
 logger = get_logger("nai_pic_plugin")
 
@@ -32,7 +33,7 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
 
     async def execute(self) -> Tuple[bool, Optional[str], bool]:
         """执行 /nai 命令"""
-        logger.info(f"{self.log_prefix} 执行 /nai 命令")
+        logger.info(f"{self.log_prefix} [LLM生图] 收到请求")
 
         # 检查用户权限
         has_permission = self._check_user_permission()
@@ -54,11 +55,11 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
         generated_prompt = await self._generate_prompt_with_llm(selfie_mode, description)
 
         if not generated_prompt:
-            logger.warning(f"{self.log_prefix} LLM 提示词生成失败")
+            logger.warning(f"{self.log_prefix} [LLM生图] 提示词生成失败")
             await self.send_text("提示词生成失败，请稍后再试~")
             return False, "提示词生成失败", True
 
-        logger.info(f"{self.log_prefix} 生成的提示词: {generated_prompt}")
+        logger.info(f"{self.log_prefix} [LLM生图] 提示词: {generated_prompt}")
 
         # 检查是否需要显示提示词
         if self._is_prompt_show_enabled():
@@ -90,7 +91,7 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
                 size=image_size
             )
         except Exception as e:
-            logger.error(f"{self.log_prefix} 图片生成失败: {e!r}", exc_info=True)
+            logger.error(f"{self.log_prefix} [LLM生图] 图片生成失败: {e!r}", exc_info=True)
             await self.send_text(f"生成图片时出错: {str(e)[:100]}")
             return False, f"生成失败: {e}", True
 
@@ -115,7 +116,7 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
                             await self.send_text("图片发送失败")
                             return False, "发送失败", True
                     except Exception as e:
-                        logger.error(f"{self.log_prefix} 图片URL发送失败: {e!r}")
+                        logger.error(f"{self.log_prefix} [LLM生图] 图片URL发送失败: {e!r}")
                         await self.send_text(f"图片发送失败: {str(e)[:100]}")
                         return False, "发送失败", True
                 elif final_image_data.startswith(("iVBORw", "/9j/", "UklGR", "R0lGOD")):
@@ -124,7 +125,7 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
                     if image_path:
                         send_success = await self.send_custom("imageurl", f"file://{image_path}")
                     else:
-                        logger.warning(f"{self.log_prefix} 图片保存失败，回退为Base64发送")
+                        logger.warning(f"{self.log_prefix} [LLM生图] 图片保存失败，回退为Base64发送")
                         send_success = await self.send_image(final_image_data)
 
                     if send_success:
@@ -195,8 +196,7 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
         try:
             platform, chat_id, _ = self._get_chat_identity()
             if platform and chat_id:
-                from .nai_nsfw_command import NaiNsfwControlCommand
-                if NaiNsfwControlCommand.is_nsfw_filter_enabled(platform, chat_id, self.get_config):
+                if session_state.is_nsfw_filter_enabled(platform, chat_id, self.get_config):
                     nsfw_filter_override = """
 <CRITICAL_NSFW_RESTRICTION>
 【最高优先级指令 - NSFW内容限制】
@@ -237,7 +237,7 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
                         max_tokens=custom_model.get("max_tokens", 1024),
                         temperature=custom_model.get("temperature", 0.3),
                         slow_threshold=custom_model.get("slow_threshold", 30.0),
-                        selection_strategy=custom_model.get("selection_strategy", "balance")
+                        selection_strategy="random"  # 固定使用随机选择
                     )
                     logger.info(f"{self.log_prefix} 使用自定义模型配置: {model_list}")
                     return custom_task_config
@@ -330,11 +330,7 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
 
     def _get_prompt_generator_config(self) -> Dict[str, Any]:
         """获取提示词生成器配置"""
-        config = self.get_config("prompt_generator", None)
-        if config:
-            return config
-        legacy = self.get_config("prompt_fallback", None)
-        return legacy or {}
+        return self.get_config("prompt_generator", None) or {}
 
     def _process_api_response(self, result: str) -> Optional[str]:
         """处理 API 响应"""
@@ -363,30 +359,15 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
 
     def _is_auto_recall_enabled(self, platform: str, chat_id: str) -> bool:
         """检查是否启用自动撤回"""
-        from .nai_recall_command import NaiRecallControlCommand
-        return NaiRecallControlCommand.is_recall_enabled(platform, chat_id, self.get_config)
+        return session_state.is_recall_enabled(platform, chat_id, self.get_config)
 
     def _is_prompt_show_enabled(self) -> bool:
         """检查是否启用提示词显示"""
         try:
-            from .nai_prompt_show_command import NaiPromptShowCommand
-
-            if not self.message or not getattr(self.message, "message_info", None):
+            platform, chat_id, _ = self._get_chat_identity()
+            if not platform or not chat_id:
                 return False
-
-            message_info = self.message.message_info
-            platform = getattr(message_info, "platform", "")
-            group_info = getattr(message_info, "group_info", None)
-            user_info = getattr(message_info, "user_info", None)
-
-            if group_info and getattr(group_info, "group_id", None):
-                chat_id = group_info.group_id
-            elif user_info and getattr(user_info, "user_id", None):
-                chat_id = user_info.user_id
-            else:
-                return False
-
-            return NaiPromptShowCommand.is_prompt_show_enabled(platform, chat_id, self.get_config)
+            return session_state.is_prompt_show_enabled(platform, chat_id, self.get_config)
         except Exception as e:
             logger.error(f"{self.log_prefix} 检查提示词显示状态时出错: {e}")
             return False
@@ -394,36 +375,11 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
     def _check_user_permission(self) -> bool:
         """检查当前用户是否有权限使用生图命令"""
         try:
-            from .nai_admin_command import NaiAdminControlCommand
-
-            # 获取会话信息
-            if not self.message or not getattr(self.message, "message_info", None):
-                logger.warning(f"{self.log_prefix} 无法获取 message_info，默认允许")
+            platform, chat_id, user_id = self._get_chat_identity()
+            if not platform or not chat_id or not user_id:
+                logger.warning(f"{self.log_prefix} 无法获取会话信息，默认允许")
                 return True
-
-            message_info = self.message.message_info
-            platform = getattr(message_info, "platform", "")
-            group_info = getattr(message_info, "group_info", None)
-            user_info = getattr(message_info, "user_info", None)
-
-            if group_info and getattr(group_info, "group_id", None):
-                chat_id = group_info.group_id
-            elif user_info and getattr(user_info, "user_id", None):
-                chat_id = user_info.user_id
-            else:
-                logger.warning(f"{self.log_prefix} 无法获取 chat_id，默认允许")
-                return True
-
-            user_id = getattr(user_info, "user_id", None) if user_info else None
-            if not user_id:
-                logger.warning(f"{self.log_prefix} 无法获取 user_id，默认允许")
-                return True
-
-            # 检查用户权限
-            return NaiAdminControlCommand.check_user_permission(
-                platform, chat_id, user_id, self.get_config
-            )
+            return session_state.check_user_permission(platform, chat_id, user_id, self.get_config)
         except Exception as e:
             logger.error(f"{self.log_prefix} 检查用户权限时出错: {e}", exc_info=True)
-            # 出错时默认允许
             return True

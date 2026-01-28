@@ -8,11 +8,12 @@ from src.plugin_system.base.component_types import ActionActivationType, ChatMod
 from src.common.logger import get_logger
 from src.plugin_system import llm_api
 
-from .nai_web_client import NaiWebClient
-from .auto_recall_mixin import AutoRecallMixin
-from .image_url_helper import save_base64_image_to_file
-from .model_config_mixin import ModelConfigMixin
-from .prompt_rules import PROMPT_GENERATOR_TEMPLATE
+from ..clients.nai_web_client import NaiWebClient
+from ..mixins.auto_recall_mixin import AutoRecallMixin
+from ..utils.image_url_helper import save_base64_image_to_file
+from ..mixins.model_config_mixin import ModelConfigMixin
+from ..rules.prompt_rules import PROMPT_GENERATOR_TEMPLATE
+from ..services.session_state import session_state
 
 logger = get_logger("nai_pic_plugin")
 
@@ -86,7 +87,7 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
 
     async def execute(self) -> Tuple[bool, Optional[str]]:
         """执行 NovelAI Web 图片生成"""
-        logger.info(f"{self.log_prefix} 执行 NovelAI Web 图片生成动作")
+        logger.info(f"{self.log_prefix} [LLM触发] 执行 /nai 动作")
 
         # 检查用户权限
         has_permission = self._check_user_permission()
@@ -104,41 +105,41 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
         generated_prompt = await self._generate_prompt_with_llm(selfie_mode, description)
         if generated_prompt:
             description = generated_prompt.strip()
-            logger.info(f"{self.log_prefix} 已通过LLM自动生成提示词: {description}")
+            logger.info(f"{self.log_prefix} [LLM触发] 已通过LLM自动生成提示词: {description}")
 
             # 检查是否需要显示提示词
             if self._is_prompt_show_enabled():
                 await self.send_text(f"📝 提示词:\n{description}", storage_message=False)
         elif description:
-            logger.info(f"{self.log_prefix} 使用Planner提供的提示词（LLM提示词生成被禁用或失败）")
+            logger.info(f"{self.log_prefix} [LLM触发] 使用Planner提供的提示词（LLM提示词生成被禁用或失败）")
         else:
-            logger.warning(f"{self.log_prefix} 无法生成提示词，描述为空")
+            logger.warning(f"{self.log_prefix} [LLM触发] 无法生成提示词，描述为空")
             await self.send_text("提示词生成器开小差了，请直接告诉我想画什么，或者稍后再试一次~")
             return False, "图片描述为空"
 
         # 处理自拍模式
         if selfie_mode:
             description = self._process_selfie_prompt(description)
-            logger.debug(f"{self.log_prefix} 自拍模式已启用")
+            logger.debug(f"{self.log_prefix} [LLM触发] 自拍模式已启用")
 
         # 清��和验证描述
         if len(description) > 1000:
             description = description[:1000]
-            logger.debug(f"{self.log_prefix} 提示词已截断至1000字符")
+            logger.debug(f"{self.log_prefix} [LLM触发] 提示词已截断至1000字符")
 
         # 获取模型配置
         model_config = self._get_model_config()
         if not model_config:
             error_msg = "抱歉，NovelAI Web 图片生成功能配置无效，无法提供服务。"
             await self.send_text(error_msg)
-            logger.error(f"{self.log_prefix} 模型配置获取失败")
+            logger.error(f"{self.log_prefix} [LLM触发] 模型配置获取失败")
             return False, "模型配置无效"
 
         # 配置验证
         if not model_config.get("base_url"):
             error_msg = "抱歉，NovelAI Web API 地址未配置，无法提供服务。"
             await self.send_text(error_msg)
-            logger.error(f"{self.log_prefix} base_url 未配置")
+            logger.error(f"{self.log_prefix} [LLM触发] base_url 未配置")
             return False, "base_url 未配置"
 
         # 获取尺寸配置
@@ -157,7 +158,7 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
                 size=image_size
             )
         except Exception as e:
-            logger.error(f"{self.log_prefix} 请求执行失败: {e!r}", exc_info=True)
+            logger.error(f"{self.log_prefix} [LLM触发] 请求执行失败: {e!r}", exc_info=True)
             traceback.print_exc()
             success = False
             result = f"图片生成服务遇到意外问题: {str(e)[:100]}"
@@ -174,7 +175,7 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
                     if image_content:
                         send_success = await self.send_custom("imageurl", image_content)
                     else:
-                        logger.warning(f"{self.log_prefix} 图片保存失败，回退为Base64发送")
+                        logger.warning(f"{self.log_prefix} [LLM触发] 图片保存失败，回退为Base64发送")
                         send_success = await self.send_image(final_image_data)
 
                     if send_success:
@@ -199,7 +200,7 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
                         await self.send_text("图片已生成，但发送失败了")
                         return False, "图片发送失败"
                     except Exception as e:
-                        logger.error(f"{self.log_prefix} 图片URL发送失败: {e!r}")
+                        logger.error(f"{self.log_prefix} [LLM触发] 图片URL发送失败: {e!r}")
                         await self.send_text("图片生成完成但发送时出错")
                         return False, "图片发送失败"
                 else:
@@ -242,21 +243,18 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
 
     def _is_auto_recall_enabled(self, platform: str, chat_id: str) -> bool:
         """供自动撤回Mixin调用"""
-        from .nai_recall_command import NaiRecallControlCommand
-        return NaiRecallControlCommand.is_recall_enabled(platform, chat_id, self.get_config)
+        return session_state.is_recall_enabled(platform, chat_id, self.get_config)
 
     def _is_prompt_show_enabled(self) -> bool:
         """检查是否启用提示词显示"""
         try:
-            from .nai_prompt_show_command import NaiPromptShowCommand
-
             platform, chat_id, _ = self._get_chat_identity()
             if not platform or not chat_id:
                 return False
 
-            return NaiPromptShowCommand.is_prompt_show_enabled(platform, chat_id, self.get_config)
+            return session_state.is_prompt_show_enabled(platform, chat_id, self.get_config)
         except Exception as e:
-            logger.error(f"{self.log_prefix} 检查提示词显示状态时出错: {e}")
+            logger.error(f"{self.log_prefix} [LLM触发] 检查提示词显示状态时出错: {e}")
             return False
 
     def _normalize_bool(self, value: Any) -> bool:
@@ -278,7 +276,7 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
         if not raw_request:
             raw_request = self._extract_user_request_text()
         if not raw_request:
-            logger.warning(f"{self.log_prefix} 无法提取原始用户请求，提示词生成终止")
+            logger.warning(f"{self.log_prefix} [LLM触发] 无法提取原始用户请求，提示词生成终止")
             return None
 
         prompt_template = generator_config.get("prompt_template") or PROMPT_GENERATOR_TEMPLATE
@@ -286,7 +284,7 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
 
         model_config = self._resolve_llm_model_config(generator_config.get("model_name", ""))
         if not model_config:
-            logger.error(f"{self.log_prefix} 未找到可用的LLM模型，提示词生成失败")
+            logger.error(f"{self.log_prefix} [LLM触发] 未找到可用的LLM模型，提示词生成失败")
             return None
 
         temperature = generator_config.get("temperature", 0.2)
@@ -301,12 +299,12 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
                 max_tokens=max_tokens,
             )
         except Exception as e:
-            logger.error(f"{self.log_prefix} 调用LLM生成提示词失败: {e}", exc_info=True)
+            logger.error(f"{self.log_prefix} [LLM触发] 调用LLM生成提示词失败: {e}", exc_info=True)
             return None
 
         if not success or not response:
             logger.error(
-                f"{self.log_prefix} 提示词生成失败，模型={model_name or 'unknown'}，响应={response or '无'}"
+                f"{self.log_prefix} [LLM触发] 提示词生成失败，模型={model_name or 'unknown'}，响应={response or '无'}"
             )
             return None
 
@@ -328,7 +326,7 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
                     return value.strip()
 
         # 不再从 reasoning 等字段回退，这些字段可能包含非用户原意的内容
-        logger.debug(f"{self.log_prefix} 无法从 action_message 提取用户请求")
+        logger.debug(f"{self.log_prefix} [LLM触发] 无法从 action_message 提取用户请求")
         return ""
 
     def _render_generator_prompt(self, template: str, original_request: str, selfie_mode: bool) -> str:
@@ -344,8 +342,7 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
         try:
             platform, chat_id, _ = self._get_chat_identity()
             if platform and chat_id:
-                from .nai_nsfw_command import NaiNsfwControlCommand
-                if NaiNsfwControlCommand.is_nsfw_filter_enabled(platform, chat_id, self.get_config):
+                if session_state.is_nsfw_filter_enabled(platform, chat_id, self.get_config):
                     nsfw_filter_override = """
 <CRITICAL_NSFW_RESTRICTION>
 【最高优先级指令 - NSFW内容限制】
@@ -362,7 +359,7 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
 </CRITICAL_NSFW_RESTRICTION>
 """
         except Exception as e:
-            logger.warning(f"{self.log_prefix} 检查NSFW过滤状态失败: {e}")
+            logger.warning(f"{self.log_prefix} [LLM触发] 检查NSFW过滤状态失败: {e}")
 
         prompt = template.replace("<<NSFW_FILTER_OVERRIDE>>", nsfw_filter_override).strip()
         prompt = prompt.replace("<<SELFIE_HINT>>", selfie_hint).strip()
@@ -386,12 +383,12 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
                         max_tokens=custom_model.get("max_tokens", 1024),
                         temperature=custom_model.get("temperature", 0.3),
                         slow_threshold=custom_model.get("slow_threshold", 30.0),
-                        selection_strategy=custom_model.get("selection_strategy", "balance")
+                        selection_strategy="random"  # 固定使用随机选择
                     )
-                    logger.info(f"{self.log_prefix} 提示词生成使用自定义模型配置: {model_list}")
+                    logger.info(f"{self.log_prefix} [LLM触发] 提示词生成使用自定义模型配置: {model_list}")
                     return custom_task_config
                 except Exception as e:
-                    logger.warning(f"{self.log_prefix} 自定义模型配置创建失败: {e}，回退到系统模型")
+                    logger.warning(f"{self.log_prefix} [LLM触发] 自定义模型配置创建失败: {e}，回退到系统模型")
 
         # 回退到系统模型
         models = llm_api.get_available_models()
@@ -407,13 +404,13 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
             config = models.get(name)
             if config:
                 if name == preferred_name:
-                    logger.info(f"{self.log_prefix} 提示词生成使用自定义模型: {name}")
+                    logger.info(f"{self.log_prefix} [LLM触发] 提示词生成使用自定义模型: {name}")
                 else:
-                    logger.info(f"{self.log_prefix} 提示词生成使用默认模型: {name}")
+                    logger.info(f"{self.log_prefix} [LLM触发] 提示词生成使用默认模型: {name}")
                 return config
 
         fallback_name, fallback_config = next(iter(models.items()))
-        logger.info(f"{self.log_prefix} 提示词生成使用系统模型: {fallback_name}")
+        logger.info(f"{self.log_prefix} [LLM触发] 提示词生成使用系统模型: {fallback_name}")
         return fallback_config
 
     def _cleanup_llm_prompt(self, prompt: str) -> str:
@@ -482,28 +479,22 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
         return cleaned
 
     def _get_prompt_generator_config(self) -> Dict[str, Any]:
-        """获取提示词生成器配置，兼容新旧配置节"""
-        config = self.get_config("prompt_generator", None)
-        if config:
-            return config
-        legacy = self.get_config("prompt_fallback", None)
-        return legacy or {}
+        """获取提示词生成器配置"""
+        return self.get_config("prompt_generator", None) or {}
 
     def _check_user_permission(self) -> bool:
         """检查当前用户是否有权限使用生图功能"""
         try:
-            from .nai_admin_command import NaiAdminControlCommand
-
             platform, chat_id, user_id = self._get_chat_identity()
             if not platform or not chat_id or not user_id:
-                logger.warning(f"{self.log_prefix} 无法获取会话身份，默认允许")
+                logger.warning(f"{self.log_prefix} [LLM触发] 无法获取会话身份，默认允许")
                 return True
 
             # 检查用户权限
-            return NaiAdminControlCommand.check_user_permission(
+            return session_state.check_user_permission(
                 platform, chat_id, user_id, self.get_config
             )
         except Exception as e:
-            logger.error(f"{self.log_prefix} 检查用户权限时出错: {e}", exc_info=True)
+            logger.error(f"{self.log_prefix} [LLM触发] 检查用户权限时出错: {e}", exc_info=True)
             # 出错时默认允许
             return True

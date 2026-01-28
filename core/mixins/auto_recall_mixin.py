@@ -6,7 +6,7 @@ from src.chat.utils.utils import parse_platform_accounts
 from src.common.logger import get_logger
 from src.config.config import global_config
 
-recall_logger = get_logger("pic_auto_recall")
+logger = get_logger("nai_pic_plugin")
 
 
 def _get_bot_account_for_platform(platform: str) -> str:
@@ -147,11 +147,11 @@ class AutoRecallMixin:
             elif user_info and getattr(user_info, "user_id", None):
                 chat_id = str(getattr(user_info, "user_id"))
             else:
-                recall_logger.debug(f"{self.log_prefix} 无法识别聊天类型，跳过自动撤回")
+                logger.debug(f"{self.log_prefix} 无法识别聊天类型，跳过自动撤回")
                 return
 
             if not self._is_auto_recall_enabled(platform, chat_id):
-                recall_logger.debug(f"{self.log_prefix} 会话未启用自动撤回")
+                logger.debug(f"{self.log_prefix} 会话未启用自动撤回")
                 return
 
             delay_seconds = self.get_config("auto_recall.delay_seconds", 5)
@@ -162,13 +162,13 @@ class AutoRecallMixin:
 
             message_id = await self._get_last_message_id()
             if not message_id and placeholder_message_id:
-                recall_logger.debug(f"{self.log_prefix} 使用占位消息ID作为兜底: {placeholder_message_id}")
+                logger.debug(f"{self.log_prefix} 使用占位消息ID作为兜底: {placeholder_message_id}")
                 message_id = placeholder_message_id
             if not message_id:
-                recall_logger.warning(f"{self.log_prefix} 未能获取消息ID，无法自动撤回")
+                logger.warning(f"{self.log_prefix} 未能获取消息ID，无法自动撤回")
                 return
 
-            recall_logger.info(f"{self.log_prefix} 计划在 {delay_seconds} 秒后撤回消息: {message_id}")
+            logger.info(f"{self.log_prefix} 计划在 {delay_seconds} 秒后撤回消息: {message_id}")
             initial_message_id = message_id
 
             async def _resolve_message_id(initial_id: Optional[str]) -> Optional[str]:
@@ -183,32 +183,32 @@ class AutoRecallMixin:
                 while time.monotonic() < deadline:
                     refreshed_id = await self._get_last_message_id()
                     if refreshed_id and not refreshed_id.startswith("send_api_"):
-                        recall_logger.debug(f"{self.log_prefix} 占位ID替换为正式ID: {refreshed_id}")
+                        logger.debug(f"{self.log_prefix} 占位ID替换为正式ID: {refreshed_id}")
                         return refreshed_id
                     await asyncio.sleep(poll_interval or 0.5)
-                recall_logger.debug(f"{self.log_prefix} 在限定时间内未获取正式ID，继续使用占位ID")
+                logger.debug(f"{self.log_prefix} 在限定时间内未获取正式ID，继续使用占位ID")
                 return candidate
 
             async def _delayed_recall():
                 await asyncio.sleep(delay_seconds)
                 target_message_id = await _resolve_message_id(initial_message_id)
                 if not target_message_id:
-                    recall_logger.warning(f"{self.log_prefix} 撤回失败：缺少消息ID")
+                    logger.warning(f"{self.log_prefix} 撤回失败：缺少消息ID")
                     return
                 try:
                     success = await self._try_recall_message(target_message_id)
                     if success:
-                        recall_logger.info(f"{self.log_prefix} 消息 {target_message_id} 已成功撤回")
+                        logger.info(f"{self.log_prefix} 消息 {target_message_id} 已成功撤回")
                     else:
-                        recall_logger.warning(f"{self.log_prefix} 消息 {target_message_id} 撤回失败")
+                        logger.warning(f"{self.log_prefix} 消息 {target_message_id} 撤回失败")
                 except Exception as exc:
-                    recall_logger.error(f"{self.log_prefix} 撤回消息时出错: {exc!r}")
+                    logger.error(f"{self.log_prefix} 撤回消息时出错: {exc!r}")
 
             task = asyncio.create_task(_delayed_recall())
             if hasattr(self, "plugin") and hasattr(self.plugin, "_track_task"):
                 self.plugin._track_task(task)
         except Exception as exc:
-            recall_logger.error(f"{self.log_prefix} 计划自动撤回失败: {exc!r}")
+            logger.error(f"{self.log_prefix} 计划自动撤回失败: {exc!r}")
 
     def _is_auto_recall_enabled(self, platform: str, chat_id: str) -> bool:
         """由子类实现，用于判断当前会话是否启用了自动撤回"""
@@ -217,13 +217,13 @@ class AutoRecallMixin:
     async def _get_last_message_id(self) -> Optional[str]:
         """获取最后发送的消息ID"""
         try:
-            recall_logger.info(f"{self.log_prefix} 【调试】开始获取消息ID")
+            logger.info(f"{self.log_prefix} 开始获取消息ID")
 
             context = self._get_recall_context()
             chat_stream = context.get("chat_stream")
             stream_id = getattr(chat_stream, "stream_id", None) if chat_stream else None
             if not stream_id:
-                recall_logger.info(f"{self.log_prefix} 【调试】无法获取stream_id")
+                logger.info(f"{self.log_prefix} 无法获取stream_id")
                 return None
 
             platform = context.get("platform", "") or ""
@@ -244,7 +244,7 @@ class AutoRecallMixin:
                     limit_mode="latest",
                     filter_mai=False
                 ) or []
-                recall_logger.debug(f"{self.log_prefix} 【调试】尝试{attempt + 1}/{max_attempts}，获取到 {len(msgs)} 条消息")
+                logger.debug(f"{self.log_prefix} 尝试{attempt + 1}/{max_attempts}，获取到 {len(msgs)} 条消息")
 
                 for msg in reversed(msgs):
                     if not _is_image_message(msg):
@@ -270,7 +270,7 @@ class AutoRecallMixin:
                         continue
 
                     if not message_id.startswith("send_api_"):
-                        recall_logger.info(f"{self.log_prefix} 【调试】命中消息ID: {message_id}")
+                        logger.info(f"{self.log_prefix} 命中消息ID: {message_id}")
                         return message_id
 
                     placeholder_id = message_id
@@ -279,13 +279,13 @@ class AutoRecallMixin:
                     await asyncio.sleep(0.4)
 
             if placeholder_id:
-                recall_logger.warning(f"{self.log_prefix} 未获取到正式ID，使用占位ID: {placeholder_id}")
+                logger.warning(f"{self.log_prefix} 未获取到正式ID，使用占位ID: {placeholder_id}")
                 return placeholder_id
 
-            recall_logger.warning(f"{self.log_prefix} 所有方法都未能获取消息ID")
+            logger.warning(f"{self.log_prefix} 所有方法都未能获取消息ID")
             return None
         except Exception as exc:
-            recall_logger.error(f"{self.log_prefix} 获取消息ID失败: {exc!r}")
+            logger.error(f"{self.log_prefix} 获取消息ID失败: {exc!r}")
             return None
 
     async def _try_recall_message(self, message_id: str) -> bool:
@@ -307,9 +307,9 @@ class AutoRecallMixin:
                         if status in ("ok", "success") or result.get("retcode") == 0:
                             return True
                 except Exception as exc:
-                    recall_logger.debug(f"{self.log_prefix} 尝试命令 {cmd} 失败: {exc!r}")
+                    logger.debug(f"{self.log_prefix} 尝试命令 {cmd} 失败: {exc!r}")
                     continue
             return False
         except Exception as exc:
-            recall_logger.error(f"{self.log_prefix} 撤回消息异常: {exc!r}")
+            logger.error(f"{self.log_prefix} 撤回消息异常: {exc!r}")
             return False

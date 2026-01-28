@@ -11,27 +11,11 @@ EXTRACT_TAGS_TEMPLATE = """
 
 用户需求：<<USER_REQUEST>>
 
-请输出 3-6 个最相关的 Danbooru 标签（英文，下划线格式）。
-这些标签将用于搜索擅长该风格的画师。
+【重要】首先判断用户需求是否提到了具体的画师名：
+- 如果用户明确提到画师名，直接输出该画师名（Danbooru格式，下划线连接），前面加 @ 符号
+- 如果用户描述的是画风特征，才输出风格标签
 
-【常用 Danbooru 标签参考】
-人物特征：loli, shota, mature_female, school_uniform, maid, chibi, 1girl, 1boy
-身体特征：small_breasts, large_breasts, flat_chest, thick_thighs, muscular
-画风技法：lineart, sketch, monochrome, greyscale, flat_color, gradient, cel_shading
-色彩风格：pale_color, pastel_colors, colorful, dark, high_contrast, limited_palette
-构图元素：simple_background, white_background, detailed_background, portrait
-题材风格：moe, cute, dark, horror, fantasy, science_fiction, cyberpunk
-
-参考示例：
-- "清纯可爱小萝莉" → loli cute flat_chest school_uniform
-- "暗黑哥特风" → dark gothic pale_skin black_dress
-- "性感御姐" → mature_female large_breasts
-- "厚涂油画感" → detailed impasto
-- "赛博朋克" → cyberpunk science_fiction neon_lights
-- "简约扁平风" → flat_color simple_background lineart
-- "Q版可爱" → chibi cute moe
-
-只输出标签，用空格分隔，不要解释。优先使用上面参考列表中的标签。
+只输出结果（@画师名 或 风格标签），不要解释。
 """.strip()
 
 # 步骤2: 从候选池组合画师串
@@ -96,7 +80,7 @@ def format_candidate_pool(artists: list) -> str:
     if not artists:
         return "（无候选画师）"
 
-    from .danbooru_api import get_artist_quality_score
+    from ..utils.danbooru_api import get_artist_quality_score
 
     lines = []
     for artist in artists:
@@ -124,21 +108,7 @@ EXTRACT_FEEDBACK_TAGS_TEMPLATE = """
 请输出 2-4 个最能代表用户想要调整方向的 Danbooru 标签（英文，下划线格式）。
 这些标签将用于搜索擅长该特征的画师作为候选补充。
 
-【常用 Danbooru 标签参考】
-画风技法：lineart, sketch, cel_shading, flat_color, monochrome, watercolor_(medium)
-色彩风格：pale_color, pastel_colors, colorful, dark, high_contrast, limited_palette
-人物风格：chibi, moe, cute, mature_female, realistic
-构图：portrait, close-up, full_body, simple_background, detailed_background
-
-参考示例：
-- "线条太粗" → lineart detailed
-- "颜色太淡，想要更鲜艳" → colorful high_contrast
-- "风格不够萌" → cute chibi moe
-- "太写实了" → flat_color cel_shading
-- "细节太多" → simple_background flat_color
-- "颜色太暗" → colorful pastel_colors pale_color
-
-只输出标签，用空格分隔，不要解释。优先使用上面参考列表中的标签。
+只输出标签，用空格分隔，不要解释。
 """.strip()
 
 # artfix 步骤2: 从扩展池重新组合

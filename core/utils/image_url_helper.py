@@ -7,7 +7,7 @@ from typing import Optional, List, Tuple
 
 from src.common.logger import get_logger
 
-logger = get_logger("nai_pic_plugin.image_helper")
+logger = get_logger("nai_pic_plugin")
 
 _BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _IMAGE_OUTPUT_DIR = os.path.join(_BASE_DIR, "generated_images")
@@ -51,7 +51,7 @@ def _cleanup_generated_files(now: float):
             except FileNotFoundError:
                 continue
             except Exception as e:
-                logger.warning(f"[ImageHelper] 删除过期图片失败: {e}")
+                logger.warning(f"[nai_pic] 删除过期图片失败: {e}")
         else:
             remaining.append((path, mtime))
 
@@ -65,10 +65,10 @@ def _cleanup_generated_files(now: float):
             except FileNotFoundError:
                 continue
             except Exception as e:
-                logger.warning(f"[ImageHelper] 删除多余图片失败: {e}")
+                logger.warning(f"[nai_pic] 删除多余图片失败: {e}")
 
     if removed:
-        logger.debug(f"[ImageHelper] 已清理 {removed} 个临时图片文件")
+        logger.debug(f"[nai_pic] 已清理 {removed} 个临时图片文件")
 
 
 def save_base64_image_to_file(image_base64: str) -> Optional[str]:
@@ -78,7 +78,7 @@ def save_base64_image_to_file(image_base64: str) -> Optional[str]:
         data = image_base64.split(",", 1)[1] if image_base64.startswith("data:image") else image_base64
         image_bytes = base64.b64decode(data)
     except Exception as e:
-        logger.error(f"[ImageHelper] 解码Base64图片失败: {e}")
+        logger.error(f"[nai_pic] 解码Base64图片失败: {e}")
         return None
 
     image_type = imghdr.what(None, h=image_bytes) or "png"
@@ -89,8 +89,8 @@ def save_base64_image_to_file(image_base64: str) -> Optional[str]:
     try:
         with open(file_path, "wb") as f:
             f.write(image_bytes)
-        logger.debug(f"[ImageHelper] 图片已保存: {file_path}")
+        logger.debug(f"[nai_pic] 图片已保存: {file_path}")
         return file_path
     except Exception as e:
-        logger.error(f"[ImageHelper] 保存图片失败: {e}")
+        logger.error(f"[nai_pic] 保存图片失败: {e}")
         return None

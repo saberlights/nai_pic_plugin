@@ -11,15 +11,15 @@ from src.plugin_system.base.base_command import BaseCommand
 from src.common.logger import get_logger
 from src.plugin_system import llm_api
 
-from .model_config_mixin import ModelConfigMixin
-from .artist_rules import (
+from ..mixins.model_config_mixin import ModelConfigMixin
+from ..rules.artist_rules import (
     EXTRACT_TAGS_TEMPLATE,
     EXTRACT_FEEDBACK_TAGS_TEMPLATE,
     ARTIST_FROM_POOL_TEMPLATE,
     ARTIST_FIX_FROM_POOL_TEMPLATE,
     format_candidate_pool
 )
-from .danbooru_api import (
+from ..utils.danbooru_api import (
     DanbooruAPI,
     extract_artist_names_from_prompt,
     get_artist_quality_score,
@@ -53,7 +53,7 @@ class NaiArtistCommand(ModelConfigMixin, BaseCommand):
         if is_fix:
             return await self._execute_artfix()
 
-        logger.info(f"{self.log_prefix} 执行 /nai artgen 命令")
+        logger.info(f"{self.log_prefix} [画师串] 执行 /nai artgen 命令")
 
         # 获取用户输入的风格描述
         style = self.matched_groups.get("style", "").strip() if self.matched_groups.get("style") else ""
@@ -71,7 +71,7 @@ class NaiArtistCommand(ModelConfigMixin, BaseCommand):
         if is_random:
             style = "随机"
 
-        logger.info(f"{self.log_prefix} 风格描述: {style}, 随机模式: {is_random}")
+        logger.info(f"{self.log_prefix} [画师串] 风格描述: {style}, 随机模式: {is_random}")
 
         # 获取当前模型版本
         model_version = self._get_current_model_version()
@@ -115,55 +115,66 @@ class NaiArtistCommand(ModelConfigMixin, BaseCommand):
         """
         danbooru_api = DanbooruAPI(timeout=15)
 
-        # 步骤1: 提取英文标签
+        # 步骤1: 提取英文标签（或画师名）
         if is_random:
             # 随机模式：使用通用标签
             search_tags = ["1girl", "solo"]
-            logger.info(f"{self.log_prefix} 随机模式，使用通用标签搜索")
+            logger.debug(f"{self.log_prefix} [画师串] 随机模式，使用通用标签搜索")
+            target_artist = None
         else:
             # 从用户需求提取标签（复用 API 实例）
             search_tags = await self._extract_search_tags(style, danbooru_api)
-            logger.info(f"{self.log_prefix} 提取到搜索标签: {search_tags}")
+            logger.info(f"{self.log_prefix} [画师串] 提取到搜索标签: {search_tags}")
+            target_artist = None
 
-        if not search_tags:
+            # 检查是否识别到了画师名
+            if search_tags and search_tags[0].startswith("@"):
+                target_artist = search_tags[0][1:]  # 去掉@前缀
+                search_tags = []  # 清空，后面会用画师风格标签搜索
+
+        if not search_tags and not target_artist:
             # 标签提取失败，提示用户
-            logger.warning(f"{self.log_prefix} 标签提取失败")
+            logger.warning(f"{self.log_prefix} [画师串] 标签提取失败")
             return None, "无法理解需求，请尝试更具体的描述"
 
-        # 步骤2: 搜索相关画师（逐步减少标签重试）
-        candidate_artists = await asyncio.to_thread(
-            danbooru_api.search_artists_by_tags, search_tags, 150, 2
-        )
-
-        if not candidate_artists or len(candidate_artists) < 5:
-            # 尝试逐个标签搜索并合并结果
-            logger.info(f"{self.log_prefix} 候选不足，尝试单标签搜索并合并")
-            merged_candidates = list(candidate_artists) if candidate_artists else []
-            seen_names = {a["name"].lower() for a in merged_candidates}
-
-            for tag in search_tags:
-                single_result = await asyncio.to_thread(
-                    danbooru_api.search_artists_by_tags, [tag], 100, 2
-                )
-                if single_result:
-                    for artist in single_result:
-                        if artist["name"].lower() not in seen_names:
-                            merged_candidates.append(artist)
-                            seen_names.add(artist["name"].lower())
-
-            candidate_artists = merged_candidates
-            logger.info(f"{self.log_prefix} 合并后候选画师: {len(candidate_artists)}个")
-
-        if not candidate_artists or len(candidate_artists) < 5:
-            # 最终兜底
-            logger.warning(f"{self.log_prefix} 候选画师仍不足，尝试宽泛搜索")
+        # 如果识别到画师名，使用画师相关搜索
+        if target_artist:
+            candidate_artists = await self._search_similar_artists(target_artist, danbooru_api)
+        else:
+            # 步骤2: 搜索相关画师（逐步减少标签重试）
             candidate_artists = await asyncio.to_thread(
-                danbooru_api.search_artists_by_tags, ["1girl"], 150, 2
+                danbooru_api.search_artists_by_tags, search_tags, 150, 2
             )
-            if not candidate_artists or len(candidate_artists) < 5:
-                return None, "找不到足够的相关画师，请尝试其他风格描述"
 
-        logger.info(f"{self.log_prefix} 找到 {len(candidate_artists)} 个候选画师")
+            if not candidate_artists or len(candidate_artists) < 5:
+                # 尝试逐个标签搜索并合并结果
+                logger.info(f"{self.log_prefix} [画师串] 候选不足({len(candidate_artists) if candidate_artists else 0}个)，尝试单标签搜索")
+                merged_candidates = list(candidate_artists) if candidate_artists else []
+                seen_names = {a["name"].lower() for a in merged_candidates}
+
+                for tag in search_tags:
+                    single_result = await asyncio.to_thread(
+                        danbooru_api.search_artists_by_tags, [tag], 100, 2
+                    )
+                    if single_result:
+                        for artist in single_result:
+                            if artist["name"].lower() not in seen_names:
+                                merged_candidates.append(artist)
+                                seen_names.add(artist["name"].lower())
+
+                candidate_artists = merged_candidates
+                logger.info(f"{self.log_prefix} [画师串] 合并后候选画师: {len(candidate_artists)}个")
+
+            if not candidate_artists or len(candidate_artists) < 5:
+                # 最终兜底
+                logger.warning(f"{self.log_prefix} [画师串] 候选画师仍不足，尝试宽泛搜索")
+                candidate_artists = await asyncio.to_thread(
+                    danbooru_api.search_artists_by_tags, ["1girl"], 150, 2
+                )
+                if not candidate_artists or len(candidate_artists) < 5:
+                    return None, "找不到足够的相关画师，请尝试其他风格描述"
+
+        logger.debug(f"{self.log_prefix} [画师串] 找到 {len(candidate_artists)} 个候选画师")
 
         # 步骤3: LLM 从池中组合
         artist_prompt = await self._generate_from_pool(
@@ -198,7 +209,7 @@ class NaiArtistCommand(ModelConfigMixin, BaseCommand):
 
         # 如果有不在池中的画师，尝试验证（LLM 可能使用了池外的画师）
         if invalid_artists:
-            logger.warning(f"{self.log_prefix} LLM 使用了池外画师: {invalid_artists}")
+            logger.warning(f"{self.log_prefix} [画师串] LLM 使用了池外画师: {invalid_artists}")
 
             # 并行查询所有池外画师
             async def _verify_or_correct(name: str):
@@ -231,9 +242,84 @@ class NaiArtistCommand(ModelConfigMixin, BaseCommand):
 
         return artist_prompt, validation_info
 
+    async def _search_similar_artists(self, artist_name: str, danbooru_api: DanbooruAPI) -> List[Dict]:
+        """
+        根据指定画师搜索相似画师
+
+        1. 查找目标画师信息
+        2. 获取其风格标签
+        3. 用风格标签搜索相似画师
+        4. 将目标画师放在列表最前面
+        """
+        # 先搜索目标画师
+        target_info = await asyncio.to_thread(danbooru_api.search_artist, artist_name)
+
+        if not target_info or target_info.get("post_count", 0) <= 0:
+            # 尝试模糊搜索
+            fuzzy_results = await asyncio.to_thread(danbooru_api.fuzzy_search_artist, artist_name, 5)
+            if fuzzy_results:
+                target_info = fuzzy_results[0]
+                artist_name = target_info.get("name", artist_name)
+                logger.info(f"{self.log_prefix} [画师串] 画师名纠正: {artist_name}")
+            else:
+                logger.warning(f"{self.log_prefix} [画师串] 未找到画师: {artist_name}")
+                return []
+
+        logger.info(f"{self.log_prefix} [画师串] 找到目标画师: {artist_name} ({target_info.get('post_count', 0)} posts)")
+
+        # 获取画师的风格标签
+        style_info = await asyncio.to_thread(danbooru_api.get_artist_style_tags, artist_name, 20)
+        style_tags = style_info.get("common_tags", [])[:6]
+
+        candidates = []
+        seen_names = set()
+
+        # 将目标画师加入候选池首位
+        target_entry = {
+            "name": artist_name,
+            "post_count": target_info.get("post_count", 0),
+            "style_tags": style_tags
+        }
+        candidates.append(target_entry)
+        seen_names.add(artist_name.lower())
+
+        # 获取相关画师
+        related = await asyncio.to_thread(danbooru_api.get_related_artists, artist_name, 15)
+        for item in related:
+            tag_info = item.get("tag", item)
+            related_name = tag_info.get("name", "")
+            if related_name and related_name.lower() not in seen_names:
+                related_artist_info = await asyncio.to_thread(danbooru_api.search_artist, related_name)
+                if related_artist_info and related_artist_info.get("post_count", 0) >= 100:
+                    candidates.append({
+                        "name": related_name,
+                        "post_count": related_artist_info.get("post_count", 0),
+                        "style_tags": []
+                    })
+                    seen_names.add(related_name.lower())
+
+        # 如果风格标签存在，也用风格标签搜索相似画师
+        if style_tags and len(candidates) < 20:
+            style_artists = await asyncio.to_thread(
+                danbooru_api.search_artists_by_tags, style_tags[:3], 50, 2
+            )
+            for artist in style_artists:
+                name = artist.get("name", "")
+                if name and name.lower() not in seen_names:
+                    candidates.append(artist)
+                    seen_names.add(name.lower())
+                    if len(candidates) >= 30:
+                        break
+
+        logger.debug(f"{self.log_prefix} [画师串] 找到 {len(candidates)} 个相似画师（含目标画师）")
+        return candidates
+
     async def _extract_search_tags(self, user_request: str, danbooru_api: DanbooruAPI = None) -> List[str]:
         """
         步骤1: 使用 LLM 从用户需求提取英文搜索标签
+
+        如果 LLM 识别到画师名（@前缀），返回 ["@画师名"]
+        否则返回风格标签列表
         """
         prompt = EXTRACT_TAGS_TEMPLATE.replace("<<USER_REQUEST>>", user_request)
 
@@ -245,37 +331,48 @@ class NaiArtistCommand(ModelConfigMixin, BaseCommand):
             return []
 
         try:
+            max_tokens = generator_config.get("max_tokens", 50)
             success, response, _, _ = await llm_api.generate_with_model(
                 prompt=prompt,
                 model_config=model_config,
                 request_type="nai_pic_plugin.extract_tags",
                 temperature=0.2,
-                max_tokens=50,
+                max_tokens=max_tokens,
             )
         except Exception as e:
-            logger.error(f"{self.log_prefix} 标签提取失败: {e}")
+            logger.error(f"{self.log_prefix} [画师串] 标签提取失败: {e}")
             return []
 
         if not success or not response:
             return []
 
-        # 解析标签
-        tags = response.strip().lower().split()
-        # 过滤无效标签
-        tags = [t for t in tags if t and len(t) > 1 and t.isascii()]
+        response = response.strip()
+
+        # 检查是否识别到了画师名（@前缀）
+        if response.startswith("@"):
+            artist_name = response.lstrip("@").strip().lower().replace(" ", "_")
+            if artist_name:
+                logger.info(f"{self.log_prefix} [画师串] 识别到画师名: {artist_name}")
+                return [f"@{artist_name}"]
+
+        # 解析风格标签
+        tags = response.lower().split()
+        # 过滤无效标签，去掉标点符号
+        tags = [t.strip(',.;:!?') for t in tags if t]
+        tags = [t for t in tags if t and len(t) > 1 and t.isascii() and not t.startswith("@")]
         raw_tags = tags[:6]
 
         if not raw_tags:
             return []
 
         # 验证并纠正标签
-        logger.info(f"{self.log_prefix} LLM 提取的原始标签: {raw_tags}")
+        logger.info(f"{self.log_prefix} [画师串] LLM 提取的原始标签: {raw_tags}")
         if danbooru_api is None:
             danbooru_api = DanbooruAPI(timeout=10)
         validated_tags = await asyncio.to_thread(
             validate_and_correct_tags, raw_tags, danbooru_api
         )
-        logger.info(f"{self.log_prefix} 验证后的有效标签: {validated_tags}")
+        logger.info(f"{self.log_prefix} [画师串] 验证后的有效标签: {validated_tags}")
 
         return validated_tags if validated_tags else raw_tags[:2]
 
@@ -306,6 +403,7 @@ class NaiArtistCommand(ModelConfigMixin, BaseCommand):
             return None
 
         temperature = generator_config.get("random_temperature", 0.7) if is_random else generator_config.get("temperature", 0.3)
+        max_tokens = generator_config.get("max_tokens", 300)
 
         try:
             success, response, _, _ = await llm_api.generate_with_model(
@@ -313,10 +411,10 @@ class NaiArtistCommand(ModelConfigMixin, BaseCommand):
                 model_config=model_config,
                 request_type="nai_pic_plugin.artist_from_pool",
                 temperature=temperature,
-                max_tokens=300,
+                max_tokens=max_tokens,
             )
         except Exception as e:
-            logger.error(f"{self.log_prefix} 画师组合生成失败: {e}")
+            logger.error(f"{self.log_prefix} [画师串] 画师组合生成失败: {e}")
             return None
 
         if not success or not response:
@@ -397,11 +495,7 @@ class NaiArtistCommand(ModelConfigMixin, BaseCommand):
 
     def _get_prompt_generator_config(self) -> Dict[str, Any]:
         """获取提示词生成器配置"""
-        config = self.get_config("prompt_generator", None)
-        if config:
-            return config
-        legacy = self.get_config("prompt_fallback", None)
-        return legacy or {}
+        return self.get_config("prompt_generator", None) or {}
 
     def _get_artist_generator_config(self) -> Dict[str, Any]:
         """获取画师串生成器配置"""
@@ -427,12 +521,12 @@ class NaiArtistCommand(ModelConfigMixin, BaseCommand):
                         max_tokens=custom_model.get("max_tokens", 1024),
                         temperature=custom_model.get("temperature", 0.3),
                         slow_threshold=custom_model.get("slow_threshold", 30.0),
-                        selection_strategy=custom_model.get("selection_strategy", "balance")
+                        selection_strategy="random"  # 固定使用随机选择
                     )
-                    logger.info(f"{self.log_prefix} 使用自定义模型配置: {model_list}")
+                    logger.debug(f"{self.log_prefix} [画师串] 使用自定义模型配置: {model_list}")
                     return custom_task_config
                 except Exception as e:
-                    logger.warning(f"{self.log_prefix} 自定义模型配置创建失败: {e}")
+                    logger.warning(f"{self.log_prefix} [画师串] 自定义模型配置创建失败: {e}")
 
         models = llm_api.get_available_models()
         if not models:
@@ -446,11 +540,11 @@ class NaiArtistCommand(ModelConfigMixin, BaseCommand):
         for name in candidate_names:
             config = models.get(name)
             if config:
-                logger.info(f"{self.log_prefix} 使用模型: {name}")
+                logger.debug(f"{self.log_prefix} [画师串] 使用模型: {name}")
                 return config
 
         fallback_name, fallback_config = next(iter(models.items()))
-        logger.info(f"{self.log_prefix} 使用默认模型: {fallback_name}")
+        logger.debug(f"{self.log_prefix} [画师串] 使用默认模型: {fallback_name}")
         return fallback_config
 
     # ==================== 迭代优化相关方法 ====================
@@ -470,7 +564,7 @@ class NaiArtistCommand(ModelConfigMixin, BaseCommand):
             "timestamp": time.time(),
             "model_version": model_version
         }
-        logger.debug(f"{self.log_prefix} 画师串已缓存: {artist_prompt[:50]}...")
+        logger.debug(f"{self.log_prefix} [画师串] 画师串已缓存: {artist_prompt[:50]}...")
 
     def _get_artist_from_cache(self) -> Optional[Dict[str, Any]]:
         """从缓存获取画师串，返回 None 表示无缓存或已过期"""
@@ -490,7 +584,7 @@ class NaiArtistCommand(ModelConfigMixin, BaseCommand):
 
     async def _execute_artfix(self) -> Tuple[bool, Optional[str], bool]:
         """执行 /nai artfix 命令 - 基于扩展候选池迭代优化画师串"""
-        logger.info(f"{self.log_prefix} 执行 /nai artfix 命令")
+        logger.info(f"{self.log_prefix} [画师串] 执行 /nai artfix 命令")
 
         # 获取用户反馈
         feedback = self.matched_groups.get("feedback", "").strip() if self.matched_groups.get("feedback") else ""
@@ -520,7 +614,7 @@ class NaiArtistCommand(ModelConfigMixin, BaseCommand):
         original_prompt = cached["prompt"]
         model_version = cached.get("model_version", "nai4.5")
 
-        logger.info(f"{self.log_prefix} 原画师串: {original_prompt}, 反馈: {feedback}")
+        logger.info(f"{self.log_prefix} [画师串] 原画师串: {original_prompt}, 反馈: {feedback}")
 
         # 使用扩展池流程优化
         optimized_prompt, validation_info = await self._fix_with_expanded_pool(
@@ -567,7 +661,7 @@ class NaiArtistCommand(ModelConfigMixin, BaseCommand):
 
         # 步骤1: 从反馈提取搜索标签（复用 API 实例）
         feedback_tags = await self._extract_feedback_tags(feedback, danbooru_api)
-        logger.info(f"{self.log_prefix} 反馈标签: {feedback_tags}")
+        logger.debug(f"{self.log_prefix} [画师串] 反馈标签: {feedback_tags}")
 
         # 步骤2: 获取原画师的 Danbooru 信息（并发查询）
         original_artists = extract_artist_names_from_prompt(original_prompt)
@@ -595,7 +689,7 @@ class NaiArtistCommand(ModelConfigMixin, BaseCommand):
             new_candidates = await asyncio.to_thread(
                 danbooru_api.search_artists_by_tags, feedback_tags, 100, 2
             )
-            logger.info(f"{self.log_prefix} 反馈方向找到 {len(new_candidates)} 个新候选画师")
+            logger.debug(f"{self.log_prefix} [画师串] 反馈方向找到 {len(new_candidates)} 个新候选画师")
 
         # 步骤4: 合并为扩展池（原画师 + 新候选，去重）
         expanded_pool = list(original_artist_infos)
@@ -607,10 +701,10 @@ class NaiArtistCommand(ModelConfigMixin, BaseCommand):
                 existing_names.add(candidate["name"].lower())
 
         if len(expanded_pool) < 3:
-            logger.warning(f"{self.log_prefix} 扩展池画师太少({len(expanded_pool)}个)")
+            logger.warning(f"{self.log_prefix} [画师串] 扩展池画师太少({len(expanded_pool)}个)")
             return None, "找不到足够的候选画师，请尝试其他反馈描述"
 
-        logger.info(f"{self.log_prefix} 扩展池共 {len(expanded_pool)} 个画师（原{len(original_artist_infos)} + 新{len(expanded_pool) - len(original_artist_infos)}）")
+        logger.debug(f"{self.log_prefix} [画师串] 扩展池共 {len(expanded_pool)} 个画师（原{len(original_artist_infos)} + 新{len(expanded_pool) - len(original_artist_infos)}）")
 
         # 步骤5: LLM 从扩展池重新组合
         pool_text = format_candidate_pool(expanded_pool)
@@ -645,7 +739,7 @@ class NaiArtistCommand(ModelConfigMixin, BaseCommand):
 
         # 池外画师尝试 Danbooru 验证（并行）
         if invalid_artists:
-            logger.warning(f"{self.log_prefix} LLM 使用了池外画师: {invalid_artists}")
+            logger.warning(f"{self.log_prefix} [画师串] LLM 使用了池外画师: {invalid_artists}")
 
             async def _verify_or_correct(name: str):
                 info = await asyncio.to_thread(danbooru_api.search_artist, name)
@@ -686,15 +780,16 @@ class NaiArtistCommand(ModelConfigMixin, BaseCommand):
             return []
 
         try:
+            max_tokens = generator_config.get("max_tokens", 50)
             success, response, _, _ = await llm_api.generate_with_model(
                 prompt=prompt,
                 model_config=model_config,
                 request_type="nai_pic_plugin.extract_feedback_tags",
                 temperature=0.2,
-                max_tokens=50,
+                max_tokens=max_tokens,
             )
         except Exception as e:
-            logger.error(f"{self.log_prefix} 反馈标签提取失败: {e}")
+            logger.error(f"{self.log_prefix} [画师串] 反馈标签提取失败: {e}")
             return []
 
         if not success or not response:
@@ -708,13 +803,13 @@ class NaiArtistCommand(ModelConfigMixin, BaseCommand):
             return []
 
         # 验证并纠正标签
-        logger.info(f"{self.log_prefix} LLM 提取的反馈标签: {raw_tags}")
+        logger.debug(f"{self.log_prefix} [画师串] LLM 提取的反馈标签: {raw_tags}")
         if danbooru_api is None:
             danbooru_api = DanbooruAPI(timeout=10)
         validated_tags = await asyncio.to_thread(
             validate_and_correct_tags, raw_tags, danbooru_api
         )
-        logger.info(f"{self.log_prefix} 验证后的反馈标签: {validated_tags}")
+        logger.debug(f"{self.log_prefix} [画师串] 验证后的反馈标签: {validated_tags}")
 
         return validated_tags if validated_tags else raw_tags[:2]
 
@@ -737,6 +832,7 @@ class NaiArtistCommand(ModelConfigMixin, BaseCommand):
             return None
 
         temperature = generator_config.get("temperature", 0.3)
+        max_tokens = generator_config.get("max_tokens", 300)
 
         try:
             success, response, _, _ = await llm_api.generate_with_model(
@@ -744,10 +840,10 @@ class NaiArtistCommand(ModelConfigMixin, BaseCommand):
                 model_config=model_config,
                 request_type="nai_pic_plugin.artist_fix_from_pool",
                 temperature=temperature,
-                max_tokens=300,
+                max_tokens=max_tokens,
             )
         except Exception as e:
-            logger.error(f"{self.log_prefix} 画师优化生成失败: {e}")
+            logger.error(f"{self.log_prefix} [画师串] 画师优化生成失败: {e}")
             return None
 
         if not success or not response:

@@ -1,10 +1,15 @@
 # -*- coding: utf-8 -*-
 """
-模型配置混入，统一处理模型/画师串选择及版本配置合并逻辑
+模型配置混入
+
+统一处理模型/画师串选择及版本配置合并逻辑
+使用 session_state 获取会话级别的运行时状态
 """
 from typing import Dict, Any, Tuple
 
 from src.common.logger import get_logger
+
+from ..services.session_state import session_state
 
 logger = get_logger("nai_pic_plugin")
 
@@ -13,6 +18,15 @@ class ModelConfigMixin:
     """为命令和动作提供统一的模型配置解析逻辑"""
 
     def _get_model_config(self) -> Dict[str, Any]:
+        """
+        获取合并后的模型配置
+
+        合并顺序：
+        1. 基础配置（model.*）
+        2. 版本特定配置（model_nai3/model_nai4/model_nai4_5）
+        3. 会话级别覆盖（模型、画师串、尺寸）
+        4. NSFW 过滤
+        """
         base_config = self.get_config("model", {})  # type: ignore[attr-defined]
         if not base_config:
             logger.error(f"{self._log_prefix} 模型配置读取失败")
@@ -20,23 +34,18 @@ class ModelConfigMixin:
 
         platform, chat_id, _ = self._get_chat_identity()
 
+        # 获取模型名称（优先使用会话选择）
         model_name = base_config.get("default_model", "")
-        # 运行时模型切换
-        try:
-            if platform and chat_id:
-                from .nai_admin_command import NaiAdminControlCommand
+        if platform and chat_id:
+            selected_model = session_state.get_selected_model(platform, chat_id)
+            if selected_model:
+                model_name = selected_model
+                logger.debug(f"{self._log_prefix} 使用会话选定的模型: {selected_model}")
 
-                selected_model = NaiAdminControlCommand.get_selected_model(
-                    platform, chat_id, self.get_config  # type: ignore[attr-defined]
-                )
-                if selected_model:
-                    model_name = selected_model
-                    logger.info(f"{self._log_prefix} 使用用户选定的模型: {selected_model}")
-        except Exception as exc:
-            logger.warning(f"{self._log_prefix} 获取用户选定模型失败: {exc}")
-
+        # 获取版本特定配置
         version_config = self._get_version_config(model_name)
 
+        # 合并配置
         merged_config = base_config.copy()
         if model_name:
             merged_config["default_model"] = model_name
@@ -44,75 +53,62 @@ class ModelConfigMixin:
         if version_config:
             for key, value in version_config.items():
                 if key == "nai_extra_params":
+                    # 合并 extra_params
                     base_extra = merged_config.get("nai_extra_params", {}) or {}
                     merged_extra = dict(base_extra)
                     merged_extra.update(value or {})
                     merged_config["nai_extra_params"] = merged_extra
                 elif key == "artist_presets":
+                    # 跳过画师串列表，后续单独处理
                     continue
                 else:
                     merged_config[key] = value
 
-        # 应用画师串选择
-        try:
-            if platform and chat_id and model_name:
-                from .nai_admin_command import NaiAdminControlCommand
+        # 应用会话级别的画师串选择
+        if platform and chat_id and model_name:
+            selected_artist = session_state.get_selected_artist_preset(
+                platform, chat_id, model_name, self.get_config  # type: ignore[attr-defined]
+            )
+            if selected_artist:
+                merged_config["nai_artist_prompt"] = selected_artist
+                logger.debug(f"{self._log_prefix} 使用会话选定的画师串: {selected_artist[:50]}...")
 
-                selected_artist = NaiAdminControlCommand.get_selected_artist_preset(
-                    platform, chat_id, model_name, self.get_config  # type: ignore[attr-defined]
-                )
-                if selected_artist:
-                    merged_config["nai_artist_prompt"] = selected_artist
-                    logger.info(f"{self._log_prefix} 使用用户选定的画师串: {selected_artist[:50]}...")
-        except Exception as exc:
-            logger.warning(f"{self._log_prefix} 获取用户选定画师串失败: {exc}")
+        # 应用会话级别的尺寸选择
+        if platform and chat_id:
+            selected_size = session_state.get_selected_size(platform, chat_id)
+            if selected_size:
+                merged_config["nai_size"] = selected_size
+                logger.debug(f"{self._log_prefix} 使用会话选定的尺寸: {selected_size}")
 
-        # 应用尺寸选择
-        try:
-            if platform and chat_id:
-                from .nai_admin_command import NaiAdminControlCommand
-
-                selected_size = NaiAdminControlCommand.get_selected_size(platform, chat_id)
-                if selected_size:
-                    merged_config["nai_size"] = selected_size
-                    logger.info(f"{self._log_prefix} 使用用户选定的尺寸: {selected_size}")
-        except Exception as exc:
-            logger.warning(f"{self._log_prefix} 获取用户选定尺寸失败: {exc}")
-
-        # 应用NSFW过滤
-        try:
-            if platform and chat_id:
-                from .nai_nsfw_command import NaiNsfwControlCommand
-
-                if NaiNsfwControlCommand.is_nsfw_filter_enabled(
-                    platform, chat_id, self.get_config  # type: ignore[attr-defined]
-                ):
-                    # 获取过滤标签
-                    nsfw_tags = self.get_config("nsfw_filter.filter_tags", "{{{{{nsfw}}}}}")  # type: ignore[attr-defined]
-                    current_negative = merged_config.get("negative_prompt_add", "")
-                    if current_negative:
-                        merged_config["negative_prompt_add"] = f"{nsfw_tags}, {current_negative}"
-                    else:
-                        merged_config["negative_prompt_add"] = nsfw_tags
-                    logger.info(f"{self._log_prefix} 已应用NSFW过滤: {nsfw_tags}")
-        except Exception as exc:
-            logger.warning(f"{self._log_prefix} 应用NSFW过滤失败: {exc}")
+        # 应用 NSFW 过滤
+        if platform and chat_id:
+            if session_state.is_nsfw_filter_enabled(
+                platform, chat_id, self.get_config  # type: ignore[attr-defined]
+            ):
+                nsfw_tags = self.get_config("nsfw_filter.filter_tags", "{{{{{nsfw}}}}}")  # type: ignore[attr-defined]
+                current_negative = merged_config.get("negative_prompt_add", "")
+                if current_negative:
+                    merged_config["negative_prompt_add"] = f"{nsfw_tags}, {current_negative}"
+                else:
+                    merged_config["negative_prompt_add"] = nsfw_tags
+                logger.debug(f"{self._log_prefix} 已应用NSFW过滤: {nsfw_tags}")
 
         return merged_config
 
     def _get_version_config(self, model_name: str) -> Dict[str, Any]:
+        """根据模型名称获取版本特定配置"""
         if not model_name:
             return {}
 
         if "nai-diffusion-3" in model_name:
             config_section = "model_nai3"
-            logger.info(f"{self._log_prefix} 检测到 NAI V3 模型，使用 {config_section} 配置")
+            logger.debug(f"{self._log_prefix} 检测到 NAI V3 模型，使用 {config_section} 配置")
         elif "nai-diffusion-4-5" in model_name:
             config_section = "model_nai4_5"
-            logger.info(f"{self._log_prefix} 检测到 NAI V4.5 模型，使用 {config_section} 配置")
+            logger.debug(f"{self._log_prefix} 检测到 NAI V4.5 模型，使用 {config_section} 配置")
         elif "nai-diffusion-4" in model_name:
             config_section = "model_nai4"
-            logger.info(f"{self._log_prefix} 检测到 NAI V4 模型，使用 {config_section} 配置")
+            logger.debug(f"{self._log_prefix} 检测到 NAI V4 模型，使用 {config_section} 配置")
         else:
             return {}
 
@@ -120,11 +116,15 @@ class ModelConfigMixin:
 
     @property
     def _log_prefix(self) -> str:
+        """获取日志前缀"""
         return getattr(self, "log_prefix", "nai_pic_plugin")
 
     def _get_chat_identity(self) -> Tuple[str, str, str]:
         """
-        返回 (platform, chat_id, user_id)
+        获取当前会话身份信息
+
+        Returns:
+            (platform, chat_id, user_id) 元组
         """
         message = getattr(self, "action_message", None) or getattr(self, "message", None)
         if not message:
@@ -146,7 +146,7 @@ class ModelConfigMixin:
             user_id = str(getattr(user_info, "user_id", "") if user_info else "")
             return platform, chat_id, user_id
 
-        # Planner触发的Action通常只有DatabaseMessages，改为从chat_info中取
+        # Planner 触发的 Action 通常只有 DatabaseMessages，从 chat_info 中获取
         chat_info = getattr(message, "chat_info", None)
         user_info = getattr(message, "user_info", None) or getattr(chat_info, "user_info", None)
 

@@ -77,7 +77,7 @@ class DanbooruAPI:
                     if data[0].get("post_count", 0) > 0:
                         return data[0]
         except Exception as e:
-            logger.warning(f"Danbooru API 查询失败 (name_matches): {e}")
+            logger.warning(f"[nai_pic] Danbooru API 查询失败 (name_matches): {e}")
 
         # 方法2: 回退到精确搜索
         try:
@@ -97,7 +97,7 @@ class DanbooruAPI:
                 if data and len(data) > 0:
                     return data[0]
         except Exception as e:
-            logger.warning(f"Danbooru API 查询失败 (exact): {e}")
+            logger.warning(f"[nai_pic] Danbooru API 查询失败 (exact): {e}")
 
         return None
 
@@ -143,7 +143,7 @@ class DanbooruAPI:
                 return response.json()
             return []
         except Exception as e:
-            logger.warning(f"Danbooru API 获取热门画师失败: {e}")
+            logger.warning(f"[nai_pic] Danbooru API 获取热门画师失败: {e}")
             return []
 
     def search_tag(self, tag_name: str) -> Optional[Dict]:
@@ -173,7 +173,7 @@ class DanbooruAPI:
                     return data[0]
             return None
         except Exception as e:
-            logger.warning(f"Danbooru API 标签搜索失败: {e}")
+            logger.warning(f"[nai_pic] Danbooru API 标签搜索失败: {e}")
             return None
 
     def fuzzy_search_tag(self, partial_name: str, limit: int = 10) -> List[Dict]:
@@ -219,7 +219,7 @@ class DanbooruAPI:
                 return response.json()
             return []
         except Exception as e:
-            logger.warning(f"Danbooru API 标签模糊搜索失败: {e}")
+            logger.warning(f"[nai_pic] Danbooru API 标签模糊搜索失败: {e}")
             return []
 
     def fuzzy_search_artist(self, partial_name: str, limit: int = 10) -> List[Dict]:
@@ -250,7 +250,7 @@ class DanbooruAPI:
                 return response.json()
             return []
         except Exception as e:
-            logger.warning(f"Danbooru API 模糊搜索失败: {e}")
+            logger.warning(f"[nai_pic] Danbooru API 模糊搜索失败: {e}")
             return []
 
     def get_related_artists(self, artist_name: str, limit: int = 10) -> List[Dict]:
@@ -286,7 +286,7 @@ class DanbooruAPI:
                     return data[:limit]
             return []
         except Exception as e:
-            logger.warning(f"Danbooru API 获取相关画师失败: {e}")
+            logger.warning(f"[nai_pic] Danbooru API 获取相关画师失败: {e}")
             return []
 
     def get_similar_artists_by_style(self, artist_names: List[str], limit: int = 5) -> List[str]:
@@ -344,7 +344,7 @@ class DanbooruAPI:
                     return data[0]
             return None
         except Exception as e:
-            logger.warning(f"Danbooru API 获取画师信息失败: {e}")
+            logger.warning(f"[nai_pic] Danbooru API 获取画师信息失败: {e}")
             return None
 
     def search_artist_by_other_name(self, query: str, limit: int = 5) -> List[Dict]:
@@ -373,7 +373,7 @@ class DanbooruAPI:
                 return [a for a in response.json() if not a.get("is_deleted", False)]
             return []
         except Exception as e:
-            logger.warning(f"Danbooru API 别名搜索失败: {e}")
+            logger.warning(f"[nai_pic] Danbooru API 别名搜索失败: {e}")
             return []
 
     def get_artist_style_tags(self, artist_name: str, sample_size: int = 20) -> Dict[str, List[str]]:
@@ -441,7 +441,7 @@ class DanbooruAPI:
                 "common_copyrights": [c for c, _ in copyright_counter.most_common(5)],
             }
         except Exception as e:
-            logger.warning(f"Danbooru API 获取画师风格标签失败: {e}")
+            logger.warning(f"[nai_pic] Danbooru API 获取画师风格标签失败: {e}")
             return {"common_tags": [], "common_characters": [], "common_copyrights": []}
 
     def search_artists_by_tags(
@@ -479,7 +479,7 @@ class DanbooruAPI:
             )
 
             if response.status_code != 200:
-                logger.warning(f"Danbooru posts 搜索失败: {response.status_code}")
+                logger.warning(f"[nai_pic] Danbooru posts 搜索失败: {response.status_code}")
                 return []
 
             posts = response.json()
@@ -533,7 +533,7 @@ class DanbooruAPI:
             return result
 
         except Exception as e:
-            logger.warning(f"Danbooru API 按标签搜索画师失败: {e}")
+            logger.warning(f"[nai_pic] Danbooru API 按标签搜索画师失败: {e}")
             return []
 
 
@@ -805,11 +805,21 @@ def validate_and_correct_tags(tags: List[str], api: DanbooruAPI = None) -> List[
         # 不存在则尝试模糊搜索
         fuzzy_results = api.fuzzy_search_tag(tag, limit=5)
         if fuzzy_results:
-            # 选择帖子数最多的匹配
-            best = max(fuzzy_results, key=lambda x: x.get("post_count", 0))
-            if best.get("post_count", 0) >= 100 and best["name"] not in seen:
+            # 只接受名称高度相似的纠正（原标签是纠正结果的前缀或完全包含）
+            best = None
+            for candidate in sorted(fuzzy_results, key=lambda x: x.get("post_count", 0), reverse=True):
+                candidate_name = candidate.get("name", "")
+                # 检查相似性：原标签是候选的前缀，或候选以原标签开头/结尾
+                if (candidate_name.startswith(tag) or
+                    candidate_name.endswith(tag) or
+                    tag.replace("_", "") == candidate_name.replace("_", "")):
+                    if candidate.get("post_count", 0) >= 100:
+                        best = candidate
+                        break
+
+            if best and best["name"] not in seen:
                 valid_tags.append(best["name"])
                 seen.add(best["name"])
-                logger.info(f"标签纠正: {tag} -> {best['name']}")
+                logger.info(f"[nai_pic] 标签纠正: {tag} -> {best['name']}")
 
     return valid_tags

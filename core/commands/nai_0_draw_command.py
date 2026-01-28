@@ -8,10 +8,11 @@ from typing import Tuple, Optional, Dict, Any
 from src.plugin_system.base.base_command import BaseCommand
 from src.common.logger import get_logger
 
-from .nai_web_client import NaiWebClient
-from .auto_recall_mixin import AutoRecallMixin
-from .image_url_helper import save_base64_image_to_file
-from .model_config_mixin import ModelConfigMixin
+from ..clients.nai_web_client import NaiWebClient
+from ..mixins.auto_recall_mixin import AutoRecallMixin
+from ..utils.image_url_helper import save_base64_image_to_file
+from ..mixins.model_config_mixin import ModelConfigMixin
+from ..services.session_state import session_state
 
 logger = get_logger("nai_pic_plugin")
 
@@ -29,7 +30,7 @@ class Nai0DrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
 
     async def execute(self) -> Tuple[bool, Optional[str], bool]:
         """执行 /nai0 命令"""
-        logger.info(f"{self.log_prefix} 执行 /nai0 命令")
+        logger.info(f"{self.log_prefix} [直接生图] 收到请求")
 
         # 检查用户权限
         has_permission = self._check_user_permission()
@@ -44,7 +45,7 @@ class Nai0DrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
             await self.send_text("请输入英文标签，例如：/nai0 hatsune miku, smile")
             return False, "未提供标签", True
 
-        logger.info(f"{self.log_prefix} 用户输入的标签: {tags}")
+        logger.info(f"{self.log_prefix} [直接生图] 标签: {tags}")
 
         # 直接使用用户输入的 tags 作为提示词
         prompt = tags
@@ -71,7 +72,7 @@ class Nai0DrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
                 size=image_size
             )
         except Exception as e:
-            logger.error(f"{self.log_prefix} 图片生成失败: {e!r}", exc_info=True)
+            logger.error(f"{self.log_prefix} [直接生图] 图片生成失败: {e!r}", exc_info=True)
             await self.send_text(f"生成图片时出错: {str(e)[:100]}")
             return False, f"生成失败: {e}", True
 
@@ -96,7 +97,7 @@ class Nai0DrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
                             await self.send_text("图片发送失败")
                             return False, "发送失败", True
                     except Exception as e:
-                        logger.error(f"{self.log_prefix} 图片URL发送失败: {e!r}")
+                        logger.error(f"{self.log_prefix} [直接生图] 图片URL发送失败: {e!r}")
                         await self.send_text(f"图片发送失败: {str(e)[:100]}")
                         return False, "发送失败", True
                 elif final_image_data.startswith(("iVBORw", "/9j/", "UklGR", "R0lGOD")):
@@ -105,7 +106,7 @@ class Nai0DrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
                     if image_path:
                         send_success = await self.send_custom("imageurl", f"file://{image_path}")
                     else:
-                        logger.warning(f"{self.log_prefix} 图片保存失败，回退为Base64发送")
+                        logger.warning(f"{self.log_prefix} [直接生图] 图片保存失败，回退为Base64发送")
                         send_success = await self.send_image(final_image_data)
 
                     if send_success:
@@ -145,42 +146,16 @@ class Nai0DrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
 
     def _is_auto_recall_enabled(self, platform: str, chat_id: str) -> bool:
         """检查是否启用自动撤回"""
-        from .nai_recall_command import NaiRecallControlCommand
-        return NaiRecallControlCommand.is_recall_enabled(platform, chat_id, self.get_config)
+        return session_state.is_recall_enabled(platform, chat_id, self.get_config)
 
     def _check_user_permission(self) -> bool:
         """检查当前用户是否有权限使用生图命令"""
         try:
-            from .nai_admin_command import NaiAdminControlCommand
-
-            # 获取会话信息
-            if not self.message or not getattr(self.message, "message_info", None):
-                logger.warning(f"{self.log_prefix} 无法获取 message_info，默认允许")
+            platform, chat_id, user_id = self._get_chat_identity()
+            if not platform or not chat_id or not user_id:
+                logger.warning(f"{self.log_prefix} [直接生图] 无法获取会话信息，默认允许")
                 return True
-
-            message_info = self.message.message_info
-            platform = getattr(message_info, "platform", "")
-            group_info = getattr(message_info, "group_info", None)
-            user_info = getattr(message_info, "user_info", None)
-
-            if group_info and getattr(group_info, "group_id", None):
-                chat_id = group_info.group_id
-            elif user_info and getattr(user_info, "user_id", None):
-                chat_id = user_info.user_id
-            else:
-                logger.warning(f"{self.log_prefix} 无法获取 chat_id，默认允许")
-                return True
-
-            user_id = getattr(user_info, "user_id", None) if user_info else None
-            if not user_id:
-                logger.warning(f"{self.log_prefix} 无法获取 user_id，默认允许")
-                return True
-
-            # 检查用户权限
-            return NaiAdminControlCommand.check_user_permission(
-                platform, chat_id, user_id, self.get_config
-            )
+            return session_state.check_user_permission(platform, chat_id, user_id, self.get_config)
         except Exception as e:
-            logger.error(f"{self.log_prefix} 检查用户权限时出错: {e}", exc_info=True)
-            # 出错时默认允许
+            logger.error(f"{self.log_prefix} [直接生图] 检查用户权限时出错: {e}", exc_info=True)
             return True
