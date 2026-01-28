@@ -92,7 +92,6 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
         # 检查用户权限
         has_permission = self._check_user_permission()
         if not has_permission:
-            await self.send_text("❌ 当前会话已开启管理员模式，仅管理员可使用此功能", storage_message=False)
             return False, "没有权限"
 
         # 获取参数

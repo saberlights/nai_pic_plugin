@@ -81,7 +81,6 @@ class NaiAdminControlCommand(BaseCommand):
         elif action in ["set", "art", "size"]:
             if session_state.is_admin_mode_enabled(platform, chat_id, self.get_config):
                 if not is_admin:
-                    await self.send_text("❌ 当前会话已开启管理员模式，仅管理员可使用此命令", storage_message=False)
                     return False, "没有权限", True
 
         # 执行具体操作

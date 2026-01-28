@@ -28,10 +28,15 @@ class NaiPromptShowCommand(BaseCommand):
         action = self.matched_groups.get("action", "").strip()
 
         # 获取会话信息
-        platform, chat_id, chat_type = self._get_session_info()
+        platform, chat_id, user_id, chat_type = self._get_session_info()
         if not platform or not chat_id:
             await self.send_text("❌ 无法获取会话信息", storage_message=False)
             return False, "无法获取会话信息", True
+
+        # 权限检查：如果管理员模式开启，则需要管理员权限
+        if session_state.is_admin_mode_enabled(platform, chat_id, self.get_config):
+            if not session_state.is_admin_user(user_id, self.get_config):
+                return False, "没有权限", True
 
         if action == "on":
             session_state.set_prompt_show_enabled(platform, chat_id, True)
@@ -47,26 +52,31 @@ class NaiPromptShowCommand(BaseCommand):
             await self.send_text("/nai pt on|off - 开启/关闭提示词显示")
             return False, "无效的操作参数", True
 
-    def _get_session_info(self) -> Tuple[str, str, str]:
+    def _get_session_info(self) -> Tuple[str, str, str, str]:
         """获取会话信息"""
         if not self.message or not getattr(self.message, "message_info", None):
-            return "", "", ""
+            return "", "", "", ""
 
         message_info = self.message.message_info
         platform = getattr(message_info, "platform", "") or ""
         group_info = getattr(message_info, "group_info", None)
         user_info = getattr(message_info, "user_info", None)
 
+        if not user_info:
+            return platform, "", "", ""
+
+        user_id = str(getattr(user_info, "user_id", "") or "")
+
         if group_info and getattr(group_info, "group_id", None):
             chat_id = str(group_info.group_id)
             chat_type = "群聊"
-        elif user_info and getattr(user_info, "user_id", None):
-            chat_id = str(user_info.user_id)
+        elif user_id:
+            chat_id = user_id
             chat_type = "私聊"
         else:
-            return platform, "", ""
+            return platform, "", "", ""
 
-        return platform, chat_id, chat_type
+        return platform, chat_id, user_id, chat_type
 
     # 兼容性方法
     @classmethod

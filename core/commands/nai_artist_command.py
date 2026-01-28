@@ -25,6 +25,7 @@ from ..utils.danbooru_api import (
     get_artist_quality_score,
     validate_and_correct_tags,
 )
+from ..services.session_state import session_state
 
 logger = get_logger("nai_pic_plugin")
 
@@ -45,6 +46,11 @@ class NaiArtistCommand(ModelConfigMixin, BaseCommand):
     async def execute(self) -> Tuple[bool, Optional[str], bool]:
         """执行 /nai artist 命令"""
         raw_text = self.message.processed_plain_text if self.message else ""
+
+        # 权限检查
+        has_permission = self._check_user_permission()
+        if not has_permission:
+            return False, "没有权限", True
 
         # 判断命令类型
         is_random = "artr" in raw_text
@@ -863,4 +869,42 @@ class NaiArtistCommand(ModelConfigMixin, BaseCommand):
             return "nai4.5"
         else:
             return "nai4"
+
+    def _get_session_info(self) -> Tuple[str, str, str, str]:
+        """获取会话信息"""
+        if not self.message or not getattr(self.message, "message_info", None):
+            return "", "", "", ""
+
+        message_info = self.message.message_info
+        platform = getattr(message_info, "platform", "") or ""
+        group_info = getattr(message_info, "group_info", None)
+        user_info = getattr(message_info, "user_info", None)
+
+        if not user_info:
+            return platform, "", "", ""
+
+        user_id = str(getattr(user_info, "user_id", "") or "")
+
+        if group_info and getattr(group_info, "group_id", None):
+            chat_id = str(group_info.group_id)
+            chat_type = "群聊"
+        elif user_id:
+            chat_id = user_id
+            chat_type = "私聊"
+        else:
+            return platform, "", "", ""
+
+        return platform, chat_id, user_id, chat_type
+
+    def _check_user_permission(self) -> bool:
+        """检查当前用户是否有权限使用此命令"""
+        try:
+            platform, chat_id, user_id, _ = self._get_session_info()
+            if not platform or not chat_id or not user_id:
+                logger.warning(f"{self.log_prefix} [画师串] 无法获取会话信息，默认允许")
+                return True
+            return session_state.check_user_permission(platform, chat_id, user_id, self.get_config)
+        except Exception as e:
+            logger.error(f"{self.log_prefix} [画师串] 检查用户权限时出错: {e}", exc_info=True)
+            return True
 

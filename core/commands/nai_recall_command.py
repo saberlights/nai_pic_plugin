@@ -36,7 +36,6 @@ class NaiRecallControlCommand(BaseCommand):
         # 权限检查：如果管理员模式开启，则需要管理员权限
         if session_state.is_admin_mode_enabled(platform, chat_id, self.get_config):
             if not session_state.is_admin_user(user_id, self.get_config):
-                await self.send_text("❌ 当前会话已开启管理员模式，仅管理员可使用此命令", storage_message=False)
                 return False, "没有权限", True
 
         # 检查会话权限
