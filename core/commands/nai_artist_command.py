@@ -3,6 +3,7 @@
 /nai art 命令：使用 LLM 生成画师串
 """
 import asyncio
+import random
 import re
 import time
 from typing import Tuple, Optional, Dict, Any, List
@@ -34,6 +35,111 @@ logger = get_logger("nai_pic_plugin")
 _artist_session_cache: Dict[str, Dict[str, Any]] = {}
 # 缓存过期时间（秒）
 _CACHE_EXPIRE_SECONDS = 3600  # 1小时
+
+# 随机模式搜索标签池 - 按类别组织，使用有效的 Danbooru 标签
+_RANDOM_TAG_CATEGORIES = {
+    # 主体
+    "subject": [
+        "1girl", "2girls", "3girls", "4girls", "5girls", "6+girls", "multiple_girls",
+        "1boy", "2boys", "multiple_boys", "1other", "androgynous",
+        "solo", "duo", "trio", "group",
+    ],
+    # 构图/视角
+    "composition": [
+        "upper_body", "portrait", "full_body", "cowboy_shot", "dutch_angle",
+        "from_behind", "from_above", "from_below", "from_side",
+        "close-up", "wide_shot", "pov", "feet_out_of_frame", "head_out_of_frame",
+        "looking_at_viewer", "looking_away", "looking_back", "looking_up", "looking_down",
+    ],
+    # 画风/媒介
+    "medium": [
+        "traditional_media", "watercolor_(medium)", "sketch", "lineart", "pixel_art",
+        "monochrome", "greyscale", "limited_palette", "spot_color", "colorful",
+        "realistic", "semi-realistic", "anime_coloring", "flat_color", "gradient",
+        "cel_shading", "soft_shading", "hard_shading", "chromatic_aberration",
+    ],
+    # 场景/背景
+    "scene": [
+        "outdoors", "indoors", "night", "day", "sunset", "sunrise", "twilight",
+        "rain", "snow", "cherry_blossoms", "autumn_leaves", "starry_sky",
+        "beach", "forest", "city", "classroom", "bedroom", "kitchen", "bathroom",
+        "rooftop", "balcony", "street", "park", "garden", "library", "cafe",
+        "underwater", "space", "ruins", "castle", "temple", "shrine",
+    ],
+    # 服装
+    "clothing": [
+        "school_uniform", "serafuku", "blazer", "sailor_collar",
+        "dress", "sundress", "wedding_dress", "evening_gown", "cocktail_dress",
+        "japanese_clothes", "kimono", "yukata", "hakama", "miko",
+        "chinese_clothes", "hanfu", "qipao",
+        "military_uniform", "police_uniform", "nurse", "maid",
+        "swimsuit", "bikini", "one-piece_swimsuit", "school_swimsuit",
+        "casual", "hoodie", "t-shirt", "shorts", "jeans",
+        "suit", "formal", "tuxedo", "vest",
+        "armor", "cape", "cloak", "hood",
+        "pajamas", "negligee", "underwear", "lingerie",
+    ],
+    # 姿态/动作
+    "pose": [
+        "sitting", "standing", "lying", "walking", "running", "jumping",
+        "kneeling", "squatting", "crouching", "leaning", "leaning_forward", "leaning_back",
+        "arms_up", "arms_behind_back", "arms_crossed", "hand_on_hip",
+        "stretching", "yawning", "sleeping", "waking_up",
+        "eating", "drinking", "reading", "writing", "drawing",
+        "dancing", "singing", "playing_instrument", "gaming",
+        "fighting_stance", "action", "dynamic_pose",
+    ],
+    # 表情
+    "expression": [
+        "smile", "grin", "smirk", "laughing", ":d", ":)", "^^",
+        "closed_eyes", "half-closed_eyes", "one_eye_closed", "wink", ";)",
+        "open_mouth", "closed_mouth", "parted_lips",
+        "blush", "embarrassed", "shy", "nervous",
+        "crying", "tears", "sad", "melancholy", "depressed",
+        "angry", "annoyed", "frown", "glaring", "scowl",
+        "surprised", "shocked", ":o", "wide_eyes",
+        "sleepy", "tired", "exhausted", "bored",
+        "serious", "expressionless", "blank_stare", "stoic",
+        "happy", "excited", "cheerful", "content",
+        "scared", "worried", "confused", "curious",
+    ],
+    # 氛围/光照
+    "atmosphere": [
+        "backlighting", "dramatic_lighting", "soft_lighting", "rim_lighting",
+        "sunlight", "moonlight", "candlelight", "firelight", "neon_lights",
+        "light_rays", "sun_rays", "god_rays", "crepuscular_rays",
+        "lens_flare", "light_particles", "bokeh", "glowing",
+        "depth_of_field", "blurry_background", "motion_blur",
+        "shadow", "silhouette", "high_contrast", "low_contrast",
+        "warm_colors", "cool_colors", "vibrant_colors", "muted_colors", "pastel_colors",
+    ],
+    # 头发
+    "hair": [
+        "long_hair", "short_hair", "medium_hair", "very_long_hair",
+        "twintails", "ponytail", "side_ponytail", "twin_braids", "braid", "single_braid",
+        "bun", "hair_bun", "double_bun", "low_twintails", "high_ponytail",
+        "bob_cut", "pixie_cut", "hime_cut", "side_braid",
+        "black_hair", "blonde_hair", "brown_hair", "red_hair", "white_hair", "silver_hair",
+        "blue_hair", "pink_hair", "purple_hair", "green_hair", "orange_hair", "grey_hair",
+        "multicolored_hair", "gradient_hair", "streaked_hair", "two-tone_hair",
+    ],
+    # 眼睛
+    "eyes": [
+        "blue_eyes", "red_eyes", "green_eyes", "brown_eyes", "yellow_eyes", "purple_eyes",
+        "pink_eyes", "orange_eyes", "black_eyes", "white_eyes", "grey_eyes", "aqua_eyes",
+        "heterochromia", "multicolored_eyes", "glowing_eyes", "empty_eyes", "sparkling_eyes",
+    ],
+    # 特殊元素
+    "elements": [
+        "wings", "angel_wings", "demon_wings", "fairy_wings", "bat_wings",
+        "horns", "demon_horns", "antlers",
+        "tail", "cat_tail", "fox_tail", "demon_tail",
+        "animal_ears", "cat_ears", "fox_ears", "dog_ears", "rabbit_ears", "wolf_ears",
+        "halo", "magic", "fire", "water", "lightning", "ice",
+        "flowers", "petals", "rose", "sakura", "sunflower",
+        "weapon", "sword", "gun", "staff", "bow_(weapon)", "scythe",
+    ],
+}
 
 
 class NaiArtistCommand(ModelConfigMixin, BaseCommand):
@@ -83,7 +189,7 @@ class NaiArtistCommand(ModelConfigMixin, BaseCommand):
         model_version = self._get_current_model_version()
 
         # 使用新流程：预筛选画师池 → LLM 组合
-        artist_prompt, validation_info = await self._generate_with_pool(
+        artist_prompt, validation_info, used_tags = await self._generate_with_pool(
             style, model_version, is_random
         )
 
@@ -96,7 +202,13 @@ class NaiArtistCommand(ModelConfigMixin, BaseCommand):
         self._save_artist_to_cache(artist_prompt, model_version)
 
         # 构建输出
-        mode_text = "🎲 随机" if is_random else f"🎨 {style}"
+        if is_random and used_tags:
+            # 随机模式显示使用的标签
+            mode_text = f"🎲 随机 ({', '.join(used_tags)})"
+        elif is_random:
+            mode_text = "🎲 随机"
+        else:
+            mode_text = f"🎨 {style}"
         output_lines = [f"{mode_text}\n", artist_prompt]
 
         # 添加验证信息
@@ -112,20 +224,21 @@ class NaiArtistCommand(ModelConfigMixin, BaseCommand):
 
     async def _generate_with_pool(
         self, style: str, model_version: str, is_random: bool
-    ) -> Tuple[Optional[str], Optional[str]]:
+    ) -> Tuple[Optional[str], Optional[str], Optional[List[str]]]:
         """
         新流程：预筛选画师池 → LLM 从池中组合
 
         Returns:
-            (画师串, 验证信息文本)
+            (画师串, 验证信息文本, 使用的搜索标签)
         """
         danbooru_api = DanbooruAPI(timeout=15)
 
         # 步骤1: 提取英文标签（或画师名）
         if is_random:
-            # 随机模式：使用通用标签
-            search_tags = ["1girl", "solo"]
-            logger.debug(f"{self.log_prefix} [画师串] 随机模式，使用通用标签搜索")
+            # 随机模式：从多个类别中各随机选一个标签组合
+            selected_categories = random.sample(list(_RANDOM_TAG_CATEGORIES.keys()), k=random.randint(2, 4))
+            search_tags = [random.choice(_RANDOM_TAG_CATEGORIES[cat]) for cat in selected_categories]
+            logger.info(f"{self.log_prefix} [画师串] 随机模式，使用标签: {search_tags}")
             target_artist = None
         else:
             # 从用户需求提取标签（复用 API 实例）
@@ -141,7 +254,7 @@ class NaiArtistCommand(ModelConfigMixin, BaseCommand):
         if not search_tags and not target_artist:
             # 标签提取失败，提示用户
             logger.warning(f"{self.log_prefix} [画师串] 标签提取失败")
-            return None, "无法理解需求，请尝试更具体的描述"
+            return None, "无法理解需求，请尝试更具体的描述", None
 
         # 如果识别到画师名，使用画师相关搜索
         if target_artist:
@@ -178,9 +291,21 @@ class NaiArtistCommand(ModelConfigMixin, BaseCommand):
                     danbooru_api.search_artists_by_tags, ["1girl"], 150, 2
                 )
                 if not candidate_artists or len(candidate_artists) < 5:
-                    return None, "找不到足够的相关画师，请尝试其他风格描述"
+                    return None, "找不到足够的相关画师，请尝试其他风格描述", None
 
         logger.debug(f"{self.log_prefix} [画师串] 找到 {len(candidate_artists)} 个候选画师")
+
+        # 随机模式下打乱并采样候选池，增加多样性
+        if is_random and candidate_artists:
+            random.shuffle(candidate_artists)
+            # 随机采样一部分候选（30-60个），避免每次都是相同的高排名画师
+            # 如果候选不足30个，则全部使用
+            if len(candidate_artists) > 30:
+                sample_size = random.randint(30, min(60, len(candidate_artists)))
+                candidate_artists = candidate_artists[:sample_size]
+                logger.debug(f"{self.log_prefix} [画师串] 随机采样 {sample_size} 个候选画师")
+            else:
+                logger.debug(f"{self.log_prefix} [画师串] 候选不足30个，使用全部 {len(candidate_artists)} 个")
 
         # 步骤3: LLM 从池中组合
         artist_prompt = await self._generate_from_pool(
@@ -188,7 +313,7 @@ class NaiArtistCommand(ModelConfigMixin, BaseCommand):
         )
 
         if not artist_prompt:
-            return None, None
+            return None, None, search_tags
 
         # 清理格式
         artist_prompt = self._cleanup_artist_prompt(artist_prompt)
@@ -246,7 +371,7 @@ class NaiArtistCommand(ModelConfigMixin, BaseCommand):
         # 格式化输出
         validation_info = self._format_artist_grades(valid_artists)
 
-        return artist_prompt, validation_info
+        return artist_prompt, validation_info, search_tags
 
     async def _search_similar_artists(self, artist_name: str, danbooru_api: DanbooruAPI) -> List[Dict]:
         """
