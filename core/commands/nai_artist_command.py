@@ -18,6 +18,7 @@ from ..rules.artist_rules import (
     EXTRACT_FEEDBACK_TAGS_TEMPLATE,
     ARTIST_FROM_POOL_TEMPLATE,
     ARTIST_FIX_FROM_POOL_TEMPLATE,
+    PREVIEW_COMPOSITION_TEMPLATE,
     format_candidate_pool
 )
 from ..utils.danbooru_api import (
@@ -143,11 +144,11 @@ _RANDOM_TAG_CATEGORIES = {
 
 
 class NaiArtistCommand(ModelConfigMixin, BaseCommand):
-    """NovelAI 画师串生成命令：/nai artgen [风格描述]、/nai artr（随机）、/nai artfix <反馈>（迭代优化）"""
+    """NovelAI 画师串生成命令：/nai artgen [风格描述]、/nai artr（随机）、/nai artfix <反馈>（迭代优化）、/nai artpv on|off（预览图模式）"""
 
     command_name = "nai_artist"
-    command_description = "使用LLM生成画师串，例如：/nai artgen 可爱萌系风格，/nai artr 随机生成，/nai artfix 线条太粗（迭代优化）"
-    command_pattern = r"(?:.*，说：\s*)?/nai\s+(?:artgen(?:\s+(?P<style>.+))?|artr|artfix(?:\s+(?P<feedback>.+))?)$"
+    command_description = "使用LLM生成画师串，例如：/nai artgen 可爱萌系风格，/nai artr 随机生成，/nai artfix 线条太粗（迭代优化），/nai artpv on|off（预览图模式）"
+    command_pattern = r"(?:.*，说：\s*)?/nai\s+(?:artgen(?:\s+(?P<style>.+))?|artr|artfix(?:\s+(?P<feedback>.+))?|artpv(?:\s+(?P<artpv_action>on|off))?)$"
 
     async def execute(self) -> Tuple[bool, Optional[str], bool]:
         """执行 /nai artist 命令"""
@@ -161,6 +162,10 @@ class NaiArtistCommand(ModelConfigMixin, BaseCommand):
         # 判断命令类型
         is_random = "artr" in raw_text
         is_fix = "artfix" in raw_text
+        is_artpv = "artpv" in raw_text
+
+        if is_artpv:
+            return await self._execute_artpv()
 
         if is_fix:
             return await self._execute_artfix()
@@ -176,7 +181,8 @@ class NaiArtistCommand(ModelConfigMixin, BaseCommand):
                 "用法：\n"
                 "/nai artgen <风格描述> - LLM生成画师串\n"
                 "/nai artr - 随机生成画师串\n"
-                "/nai artfix <反馈> - 迭代优化上次的画师串"
+                "/nai artfix <反馈> - 迭代优化上次的画师串\n"
+                "/nai artpv on|off - 开关预览图模式"
             )
             return True, "显示用法", True
 
@@ -201,23 +207,14 @@ class NaiArtistCommand(ModelConfigMixin, BaseCommand):
         # 缓存生成的画师串，用于后续迭代优化
         self._save_artist_to_cache(artist_prompt, model_version)
 
-        # 构建输出
-        if is_random and used_tags:
-            # 随机模式显示使用的标签
-            mode_text = f"🎲 随机 ({', '.join(used_tags)})"
-        elif is_random:
-            mode_text = "🎲 随机"
-        else:
-            mode_text = f"🎨 {style}"
-        output_lines = [f"{mode_text}\n", artist_prompt]
-
-        # 添加验证信息
-        if validation_info:
-            output_lines.append(f"\n{validation_info}")
-
-        output_lines.append("\n💡 使用 /nai artfix <反馈> 可迭代优化")
+        # 构建输出（简洁模式：只显示画师串和帮助提示）
+        output_lines = [artist_prompt, "\n💡 使用 /nai artfix <反馈> 可迭代优化"]
 
         await self.send_text("\n".join(output_lines))
+
+        # 预览图模式：生成预览图
+        await self._try_generate_preview(artist_prompt)
+
         return True, "画师串生成成功", True
 
     # ==================== 新流程：预筛选画师池 ====================
@@ -760,19 +757,14 @@ class NaiArtistCommand(ModelConfigMixin, BaseCommand):
         # 更新缓存
         self._save_artist_to_cache(optimized_prompt, model_version)
 
-        # 构建输出
-        output_lines = [
-            f"🔧 根据反馈「{feedback}」优化\n",
-            f"原画师串：\n{original_prompt}\n",
-            f"优化后：\n{optimized_prompt}"
-        ]
-
-        if validation_info:
-            output_lines.append(f"\n{validation_info}")
-
-        output_lines.append("\n💡 继续使用 /nai artfix <反馈> 可进一步优化")
+        # 构建输出（简洁模式：只显示优化后的画师串和帮助提示）
+        output_lines = [optimized_prompt, "\n💡 继续使用 /nai artfix <反馈> 可进一步优化"]
 
         await self.send_text("\n".join(output_lines))
+
+        # 预览图模式：生成预览图
+        await self._try_generate_preview(optimized_prompt)
+
         return True, "画师串优化成功", True
 
     async def _fix_with_expanded_pool(
@@ -981,6 +973,131 @@ class NaiArtistCommand(ModelConfigMixin, BaseCommand):
             return None
 
         return response
+
+    # ==================== 预览图模式 ====================
+
+    async def _execute_artpv(self) -> Tuple[bool, Optional[str], bool]:
+        """执行 /nai artpv 命令 - 开关预览图模式"""
+        action = self.matched_groups.get("artpv_action", "").strip() if self.matched_groups.get("artpv_action") else ""
+        platform, chat_id, _, _ = self._get_session_info()
+
+        if not platform or not chat_id:
+            await self.send_text("无法获取会话信息")
+            return False, "无法获取会话信息", True
+
+        if action == "on":
+            session_state.set_artist_preview_enabled(platform, chat_id, True)
+            await self.send_text("🖼️ 画师串预览图模式已开启\n生成画师串时将自动生成预览图")
+            return True, "预览图模式已开启", True
+        elif action == "off":
+            session_state.set_artist_preview_enabled(platform, chat_id, False)
+            await self.send_text("🖼️ 画师串预览图模式已关闭")
+            return True, "预览图模式已关闭", True
+        else:
+            # 查看当前状态
+            enabled = session_state.is_artist_preview_enabled(platform, chat_id, self.get_config)
+            status = "开启" if enabled else "关闭"
+            await self.send_text(
+                f"🖼️ 画师串预览图模式：{status}\n\n"
+                "用法：\n"
+                "/nai artpv on - 开启预览图模式\n"
+                "/nai artpv off - 关闭预览图模式"
+            )
+            return True, "显示预览图模式状态", True
+
+    async def _try_generate_preview(self, artist_prompt: str) -> None:
+        """检查预览图模式，如果开启则生成预览图"""
+        try:
+            platform, chat_id, _, _ = self._get_session_info()
+            if not platform or not chat_id:
+                return
+
+            if not session_state.is_artist_preview_enabled(platform, chat_id, self.get_config):
+                return
+
+            logger.info(f"{self.log_prefix} [画师串] 预览图模式已开启，开始生成预览图")
+
+            # 使用 LLM 生成构图提示词
+            composition_prompt = await self._generate_preview_composition(artist_prompt)
+            if not composition_prompt:
+                logger.warning(f"{self.log_prefix} [画师串] 构图提示词生成失败，跳过预览图")
+                return
+
+            logger.info(f"{self.log_prefix} [画师串] 构图提示词: {composition_prompt}")
+
+            # 获取模型配置并覆盖画师串
+            model_config = self._get_model_config()
+            if not model_config or not model_config.get("base_url"):
+                logger.warning(f"{self.log_prefix} [画师串] 模型配置错误，跳过预览图")
+                return
+
+            model_config["nai_artist_prompt"] = artist_prompt
+
+            # 创建 API 客户端并生成图片
+            from ..clients.nai_web_client import NaiWebClient
+            api_client = NaiWebClient(self)
+            image_size = model_config.get("nai_size") or model_config.get("default_size", "1024x1280")
+
+            success, result = await api_client.generate_image(
+                prompt=composition_prompt,
+                model_config=model_config,
+                size=image_size
+            )
+
+            if not success:
+                logger.warning(f"{self.log_prefix} [画师串] 预览图生成失败: {result}")
+                await self.send_text("⚠️ 预览图生成失败")
+                return
+
+            # 发送图片
+            from ..utils.image_url_helper import save_base64_image_to_file
+
+            if result.startswith(("http://", "https://")):
+                await self.send_custom("imageurl", result)
+            elif result.startswith(("iVBORw", "/9j/", "UklGR", "R0lGOD")):
+                image_path = save_base64_image_to_file(result)
+                if image_path:
+                    await self.send_custom("imageurl", f"file://{image_path}")
+                else:
+                    await self.send_image(result)
+            else:
+                logger.warning(f"{self.log_prefix} [画师串] 预览图格式无法识别")
+                return
+
+            logger.info(f"{self.log_prefix} [画师串] 预览图发送成功")
+
+        except Exception as e:
+            logger.error(f"{self.log_prefix} [画师串] 预览图生成过程出错: {e}", exc_info=True)
+
+    async def _generate_preview_composition(self, artist_prompt: str) -> Optional[str]:
+        """使用 LLM 生成与画师串风格匹配的构图提示词"""
+        prompt = PREVIEW_COMPOSITION_TEMPLATE.replace("<<ARTIST_PROMPT>>", artist_prompt)
+
+        generator_config = self._get_artist_generator_config()
+        model_config = self._resolve_llm_model_config(
+            generator_config.get("model_name", ""), generator_config
+        )
+        if not model_config:
+            return None
+
+        try:
+            max_tokens = generator_config.get("max_tokens", 30000)
+            temperature = generator_config.get("temperature", 1.0)
+            success, response, _, _ = await llm_api.generate_with_model(
+                prompt=prompt,
+                model_config=model_config,
+                request_type="nai_pic_plugin.preview_composition",
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+        except Exception as e:
+            logger.error(f"{self.log_prefix} [画师串] 构图提示词生成失败: {e}")
+            return None
+
+        if not success or not response:
+            return None
+
+        return self._cleanup_artist_prompt(response)
 
     def _get_current_model_version(self) -> str:
         """获取当前使用的模型版本"""

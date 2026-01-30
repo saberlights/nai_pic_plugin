@@ -443,6 +443,11 @@ class NaiPicPlugin(BasePlugin):
                 default=200,
                 description="画师串生成LLM响应的最大token"
             ),
+            "auto_preview": ConfigField(
+                type=bool,
+                default=False,
+                description="是否默认启用画师串预览图模式（使用 /nai artpv on|off 可在运行时切换）"
+            ),
             "custom_model": ConfigField(
                 type=dict,
                 default={

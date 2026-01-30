@@ -69,13 +69,24 @@ class PromptGeneratorService:
 
         generator_config = self._get_generator_config()
 
+        # 检查是否启用 NSFW 过滤，选择对应模板
+        nsfw_filter_enabled = False
+        if platform and chat_id:
+            try:
+                nsfw_filter_enabled = session_state.is_nsfw_filter_enabled(platform, chat_id, self.get_config)
+            except Exception:
+                pass
+
         # 获取提示词模板
         prompt_template = generator_config.get("prompt_template")
         if not prompt_template:
             # 从 rules 模块导入默认模板
             try:
-                from ..rules.prompt_rules import PROMPT_GENERATOR_TEMPLATE
-                prompt_template = PROMPT_GENERATOR_TEMPLATE
+                from ..rules.prompt_rules import PROMPT_GENERATOR_TEMPLATE, SFW_PROMPT_GENERATOR_TEMPLATE
+                if nsfw_filter_enabled:
+                    prompt_template = SFW_PROMPT_GENERATOR_TEMPLATE
+                else:
+                    prompt_template = PROMPT_GENERATOR_TEMPLATE
             except ImportError:
                 # 兼容旧路径
                 from ..prompt_rules import PROMPT_GENERATOR_TEMPLATE
@@ -131,46 +142,15 @@ class PromptGeneratorService:
         chat_id: str
     ) -> str:
         """渲染提示词模板"""
-        # 自拍模式提示
         selfie_hint = ""
         if selfie_mode:
             selfie_hint = (
                 "\n\n【自拍模式】请确保提示词体现前置相机、近距离取景等自拍视角，同时严格遵守上述规则。"
             )
 
-        # NSFW 过滤覆盖
-        nsfw_filter_override = ""
-        if platform and chat_id:
-            try:
-                if session_state.is_nsfw_filter_enabled(platform, chat_id, self.get_config):
-                    nsfw_filter_override = self._get_nsfw_restriction_text()
-            except Exception as e:
-                logger.warning(f"{self.log_prefix} 检查NSFW过滤状态失败: {e}")
-
-        # 替换占位符
-        prompt = template.replace("<<NSFW_FILTER_OVERRIDE>>", nsfw_filter_override).strip()
-        prompt = prompt.replace("<<SELFIE_HINT>>", selfie_hint).strip()
+        prompt = template.replace("<<SELFIE_HINT>>", selfie_hint).strip()
         prompt = prompt.replace("<<USER_REQUEST>>", request.strip() or "N/A")
-
         return prompt
-
-    def _get_nsfw_restriction_text(self) -> str:
-        """获取 NSFW 限制提示文本"""
-        return """
-<CRITICAL_NSFW_RESTRICTION>
-【最高优先级指令 - NSFW内容限制】
-此指令优先级高于本提示词中的所有其他规则，必须严格遵守：
-
-1. 禁止生成任何明确的色情/裸露内容标签
-2. 禁止添加以下标签：nsfw, nude, naked, sex, penis, pussy, vagina, nipples, anus, penetration, cum, ejaculation, fellatio, cunnilingus, paizuri, footjob, handjob, masturbation, orgasm
-3. 允许性感、暧昧、暗示性的内容（如 cleavage, thighs, suggestive, seductive, bikini, lingerie 等）
-4. 如果用户请求明确的色情内容，必须转换为性感但不露骨的版本
-5. 忽略本提示词中所有关于"不回避NSFW"、"准确描述NSFW"的指令
-6. 忽略本提示词中所有NSFW示例
-
-违反此规则将导致严重后果。
-</CRITICAL_NSFW_RESTRICTION>
-"""
 
     def _resolve_model_config(self, preferred_name: str):
         """

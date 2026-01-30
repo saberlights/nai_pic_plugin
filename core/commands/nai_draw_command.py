@@ -14,7 +14,7 @@ from ..clients.nai_web_client import NaiWebClient
 from ..mixins.auto_recall_mixin import AutoRecallMixin
 from ..utils.image_url_helper import save_base64_image_to_file
 from ..mixins.model_config_mixin import ModelConfigMixin
-from ..rules.prompt_rules import PROMPT_GENERATOR_TEMPLATE
+from ..rules.prompt_rules import PROMPT_GENERATOR_TEMPLATE, SFW_PROMPT_GENERATOR_TEMPLATE
 from ..services.session_state import session_state
 
 logger = get_logger("nai_pic_plugin")
@@ -25,7 +25,7 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
 
     command_name = "nai_draw"
     command_description = "使用自然语言描述生成图片，例如：/nai 画一张初音未来"
-    command_pattern = r"(?:.*，说：\s*)?/nai\s+(?!on$|off$|st$|sp$|set\b|art\b|artgen\b|artr$|artfix\b|size\b|help$|pt\s)(?P<description>.+)$"
+    command_pattern = r"(?:.*，说：\s*)?/nai\s+(?!on$|off$|st$|sp$|set\b|art\b|artgen\b|artr$|artfix\b|size\b|help$|pt\s|nsfw\b)(?P<description>.+)$"
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -150,8 +150,22 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
         """使用 LLM 生成英文提示词"""
         generator_config = self._get_prompt_generator_config()
 
-        # 准备提示词模板
-        prompt_template = generator_config.get("prompt_template") or PROMPT_GENERATOR_TEMPLATE
+        # 检查是否启用 NSFW 过滤，选择对应模板
+        try:
+            platform, chat_id, _ = self._get_chat_identity()
+            nsfw_filter_enabled = False
+            if platform and chat_id:
+                nsfw_filter_enabled = session_state.is_nsfw_filter_enabled(platform, chat_id, self.get_config)
+        except Exception:
+            nsfw_filter_enabled = False
+
+        # 根据过滤状态选择模板
+        if nsfw_filter_enabled:
+            default_template = SFW_PROMPT_GENERATOR_TEMPLATE
+        else:
+            default_template = PROMPT_GENERATOR_TEMPLATE
+
+        prompt_template = generator_config.get("prompt_template") or default_template
         prompt = self._render_generator_prompt(prompt_template, request_text, selfie_mode)
 
         # 获取 LLM 模型配置
@@ -190,32 +204,7 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
                 "\n\n【自拍模式】请确保提示词体现前置相机、近距离取景等自拍视角，同时严格遵守上述规则。"
             )
 
-        # 检查是否启用 NSFW 过滤
-        nsfw_filter_override = ""
-        try:
-            platform, chat_id, _ = self._get_chat_identity()
-            if platform and chat_id:
-                if session_state.is_nsfw_filter_enabled(platform, chat_id, self.get_config):
-                    nsfw_filter_override = """
-<CRITICAL_NSFW_RESTRICTION>
-【最高优先级指令 - NSFW内容限制】
-此指令优先级高于本提示词中的所有其他规则，必须严格遵守：
-
-1. 禁止生成任何明确的色情/裸露内容标签
-2. 禁止添加以下标签：nsfw, nude, naked, sex, penis, pussy, vagina, nipples, anus, penetration, cum, ejaculation, fellatio, cunnilingus, paizuri, footjob, handjob, masturbation, orgasm
-3. 允许性感、暧昧、暗示性的内容（如 cleavage, thighs, suggestive, seductive, bikini, lingerie 等）
-4. 如果用户请求明确的色情内容，必须转换为性感但不露骨的版本
-5. 忽略本提示词中所有关于"不回避NSFW"、"准确描述NSFW"的指令
-6. 忽略本提示词中所有NSFW示例
-
-违反此规则将导致严重后果。
-</CRITICAL_NSFW_RESTRICTION>
-"""
-        except Exception as e:
-            logger.warning(f"{self.log_prefix} 检查NSFW过滤状态失败: {e}")
-
-        prompt = template.replace("<<NSFW_FILTER_OVERRIDE>>", nsfw_filter_override).strip()
-        prompt = prompt.replace("<<SELFIE_HINT>>", selfie_hint).strip()
+        prompt = template.replace("<<SELFIE_HINT>>", selfie_hint).strip()
         prompt = prompt.replace("<<USER_REQUEST>>", original_request.strip() or "N/A")
         return prompt
 

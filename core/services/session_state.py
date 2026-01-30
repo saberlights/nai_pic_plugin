@@ -64,6 +64,9 @@ class SessionStateManager:
         # 提示词显示：{chat_key: bool}
         self._prompt_show: Dict[str, bool] = {}
 
+        # 画师串预览图模式：{chat_key: bool}
+        self._artist_preview: Dict[str, bool] = {}
+
     @staticmethod
     def _make_key(platform: str, chat_id: str) -> str:
         """生成会话唯一标识"""
@@ -311,6 +314,26 @@ class SessionStateManager:
         self._prompt_show[key] = enabled
         logger.info(f"[nai_pic] 会话 {key} 提示词显示已{'开启' if enabled else '关闭'}")
 
+    # ==================== 画师串预览图模式 ====================
+
+    def is_artist_preview_enabled(
+        self,
+        platform: str,
+        chat_id: str,
+        get_config: Callable
+    ) -> bool:
+        """检查是否启用画师串预览图模式"""
+        key = self._make_key(platform, chat_id)
+        if key in self._artist_preview:
+            return self._artist_preview[key]
+        return get_config("artist_generator.auto_preview", False)
+
+    def set_artist_preview_enabled(self, platform: str, chat_id: str, enabled: bool):
+        """设置画师串预览图模式"""
+        key = self._make_key(platform, chat_id)
+        self._artist_preview[key] = enabled
+        logger.info(f"[nai_pic] 会话 {key} 画师串预览图模式已{'开启' if enabled else '关闭'}")
+
     # ==================== 调试/管理 ====================
 
     def get_session_state_summary(self, platform: str, chat_id: str) -> Dict[str, Any]:
@@ -325,6 +348,7 @@ class SessionStateManager:
             "recall": self._recall_enabled.get(key),
             "nsfw_filter": self._nsfw_filter.get(key),
             "prompt_show": self._prompt_show.get(key),
+            "artist_preview": self._artist_preview.get(key),
         }
 
     def clear_session_state(self, platform: str, chat_id: str):
@@ -337,6 +361,7 @@ class SessionStateManager:
         self._recall_enabled.pop(key, None)
         self._nsfw_filter.pop(key, None)
         self._prompt_show.pop(key, None)
+        self._artist_preview.pop(key, None)
         logger.info(f"[nai_pic] 会话 {key} 状态已清除")
 
 

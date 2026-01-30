@@ -179,6 +179,7 @@ class NaiAdminControlCommand(BaseCommand):
 /nai artr - 随机生成画师串
 /nai artfix <反馈> - 迭代优化上次的画师串
   示例：/nai artfix 线条太粗
+/nai artpv on|off - 开关画师串预览图模式
 
 【图片尺寸】
 /nai size - 查看当前尺寸
