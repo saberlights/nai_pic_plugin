@@ -477,7 +477,7 @@ Bot: 当前使用默认模型: nai-diffusion-4-5-full
 
      可用模型:
      3 - nai-diffusion-3
-     f3 - nai-diffusion-furry-3
+     f3 - nai-diffusion-3-furry
      4 - nai-diffusion-4-full
      4.5 - nai-diffusion-4-5-full
 
@@ -495,7 +495,7 @@ Bot: ✅ 已切换到模型: nai-diffusion-3
 
 # 切换到 furry 模型
 用户: /nai set f3
-Bot: ✅ 已切换到模型: nai-diffusion-furry-3
+Bot: ✅ 已切换到模型: nai-diffusion-3-furry
      代号: f3
 ```
 

@@ -28,7 +28,7 @@ class NaiAdminControlCommand(BaseCommand):
     # 模型映射表
     MODEL_MAPPINGS = {
         "3": "nai-diffusion-3",
-        "f3": "nai-diffusion-furry-3",
+        "f3": "nai-diffusion-3-furry",
         "4": "nai-diffusion-4-full",
         "4.5": "nai-diffusion-4-5-full",
     }
@@ -226,7 +226,7 @@ class NaiAdminControlCommand(BaseCommand):
                 f"{current_display}\n\n"
                 "可用模型:\n"
                 "3 - nai-diffusion-3\n"
-                "f3 - nai-diffusion-furry-3\n"
+                "f3 - nai-diffusion-3-furry\n"
                 "4 - nai-diffusion-4-full\n"
                 "4.5 - nai-diffusion-4-5-full\n\n"
                 "使用方法: /nai set <模型代号>"
@@ -238,7 +238,7 @@ class NaiAdminControlCommand(BaseCommand):
                 f"❌ 无效的模型代号: {model_key}\n\n"
                 "可用模型:\n"
                 "3 - nai-diffusion-3\n"
-                "f3 - nai-diffusion-furry-3\n"
+                "f3 - nai-diffusion-3-furry\n"
                 "4 - nai-diffusion-4-full\n"
                 "4.5 - nai-diffusion-4-5-full"
             )

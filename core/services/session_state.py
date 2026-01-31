@@ -128,6 +128,9 @@ class SessionStateManager:
             return True
 
         admin_users = get_config("admin.admin_users", [])
+        if not admin_users:
+            # 未配置管理员列表时，管理员模式不生效（与 is_admin_user 语义保持一致）
+            return True
         return str(user_id) in admin_users
 
     def is_admin_user(self, user_id: str, get_config: Callable) -> bool:
@@ -306,7 +309,12 @@ class SessionStateManager:
         key = self._make_key(platform, chat_id)
         if key in self._prompt_show:
             return self._prompt_show[key]
-        return get_config("prompt_generator.show_prompt", False)
+        default_enabled = get_config("prompt_show.enabled", None)
+        if default_enabled is not None:
+            return bool(default_enabled)
+
+        # 兼容旧配置：历史版本可能使用 prompt_generator.show_prompt
+        return bool(get_config("prompt_generator.show_prompt", False))
 
     def set_prompt_show_enabled(self, platform: str, chat_id: str, enabled: bool):
         """设置提示词显示"""
