@@ -33,10 +33,10 @@ class NaiRecallControlCommand(BaseCommand):
             await self.send_text("❌ 无法获取会话信息", storage_message=False)
             return False, "无法获取会话信息", True
 
-        # 权限检查：如果管理员模式开启，则需要管理员权限
-        if session_state.is_admin_mode_enabled(platform, chat_id, self.get_config):
-            if not session_state.is_admin_user(user_id, self.get_config):
-                return False, "没有权限", True
+        # 权限检查：始终需要管理员权限
+        if not session_state.is_admin_user(user_id, self.get_config):
+            await self.send_text("❌ 只有管理员可以使用自动撤回控制命令", storage_message=False)
+            return False, "没有管理员权限", True
 
         # 检查会话权限
         has_permission, permission_error = self._check_chat_permission(platform, chat_id)
