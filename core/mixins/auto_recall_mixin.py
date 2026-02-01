@@ -45,6 +45,54 @@ def _extract_message_field(msg: Any, field: str):
     return getattr(msg, field, None)
 
 
+def _extract_sender_user_id(msg: Any) -> str:
+    """获取消息发送者ID（兼容 DatabaseMessages 与 dict）"""
+    try:
+        if isinstance(msg, dict):
+            direct = msg.get("user_id")
+            if direct:
+                return str(direct)
+
+            user_info = msg.get("user_info")
+            if isinstance(user_info, dict):
+                user_id = user_info.get("user_id")
+                if user_id:
+                    return str(user_id)
+
+            message_info = msg.get("message_info")
+            if isinstance(message_info, dict):
+                mi_user_info = message_info.get("user_info")
+                if isinstance(mi_user_info, dict):
+                    user_id = mi_user_info.get("user_id")
+                    if user_id:
+                        return str(user_id)
+
+            return ""
+
+        user_info_obj = getattr(msg, "user_info", None)
+        user_id_obj = getattr(user_info_obj, "user_id", None) if user_info_obj else None
+        if user_id_obj:
+            return str(user_id_obj)
+
+        legacy = getattr(msg, "user_id", None)
+        if legacy:
+            return str(legacy)
+
+        return ""
+    except Exception:
+        return ""
+
+
+def _text_looks_like_image(text: str) -> bool:
+    """判断文本是否像“图片消息本体”（避免把引用/回复内容误判为图片）"""
+    if not isinstance(text, str):
+        return False
+    normalized = text.strip()
+    if not normalized:
+        return False
+    return normalized.startswith(("[图片", "[image", "[imageurl", "[picid", "picid:"))
+
+
 def _is_image_message(msg: Any) -> bool:
     """判断消息是否为bot发送的图片"""
     try:
@@ -62,10 +110,7 @@ def _is_image_message(msg: Any) -> bool:
                             return True
             for key in ("processed_plain_text", "display_message", "raw_message"):
                 text_val = msg.get(key)
-                if isinstance(text_val, str) and any(
-                    tag in text_val
-                    for tag in ("[图片", "[image", "[imageurl", "[picid", "picid:")
-                ):
+                if isinstance(text_val, str) and _text_looks_like_image(text_val):
                     return True
             return False
 
@@ -77,9 +122,7 @@ def _is_image_message(msg: Any) -> bool:
             getattr(msg, "raw_message", None),
         ]
         for text in text_candidates:
-            if isinstance(text, str) and any(
-                tag in text for tag in ("[图片", "[image", "[imageurl", "[picid", "picid:")
-            ):
+            if isinstance(text, str) and _text_looks_like_image(text):
                 return True
         return False
     except Exception:
@@ -240,7 +283,7 @@ class AutoRecallMixin:
                 msgs = message_api.get_recent_messages(
                     chat_id=str(stream_id),
                     hours=0.05,
-                    limit=5,
+                    limit=20,
                     limit_mode="latest",
                     filter_mai=False
                 ) or []
@@ -255,7 +298,7 @@ class AutoRecallMixin:
                         continue
                     message_id = str(message_id)
 
-                    msg_user_id = str(_extract_message_field(msg, "user_id") or "")
+                    msg_user_id = _extract_sender_user_id(msg)
                     msg_time = _extract_message_field(msg, "time")
                     try:
                         msg_time_val = float(msg_time) if msg_time is not None else None
@@ -266,8 +309,12 @@ class AutoRecallMixin:
                         if msg_time_val + timestamp_tolerance < send_timestamp:
                             continue
 
-                    if bot_account and msg_user_id and msg_user_id != bot_account:
-                        continue
+                    if bot_account:
+                        # 无法识别发送者时，宁可不撤回也不要误撤回
+                        if not msg_user_id:
+                            continue
+                        if msg_user_id != bot_account:
+                            continue
 
                     if not message_id.startswith("send_api_"):
                         logger.info(f"{self.log_prefix} 命中消息ID: {message_id}")
