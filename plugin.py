@@ -376,6 +376,11 @@ class NaiPicPlugin(BasePlugin):
                 type=bool,
                 default=False,
                 description="是否默认启用提示词显示（使用 /nai pt on|off 可在运行时切换）"
+            ),
+            "hide_selfie_prompt_add": ConfigField(
+                type=bool,
+                default=False,
+                description="提示词显示时是否隐藏配置文件中的自拍补充提示词（selfie_prompt_add）。仅影响展示，不影响实际生图。"
             )
         },
         "nsfw_filter": {
@@ -395,6 +400,21 @@ class NaiPicPlugin(BasePlugin):
                 type=str,
                 default="",
                 description="提示词生成使用的LLM模型代号，留空则自动选择"
+            ),
+            "output_format": ConfigField(
+                type=str,
+                default="text",
+                description="提示词生成输出格式：text=纯提示词（默认），json=结构化输出（支持多人|分段更稳定）"
+            ),
+            "selfie_appearance_policy": ConfigField(
+                type=str,
+                default="auto",
+                description="自拍外貌标签策略：auto=仅在用户未指定外貌时移除LLM随机发色/发型/瞳色（尽量保留配置中的自拍特征），never=始终移除（除非用户明确指定），keep=不移除"
+            ),
+            "enforce_tag_order": ConfigField(
+                type=bool,
+                default=False,
+                description="是否对最终提示词做轻量排序（人数/视角前置、year后置），降低顺序混乱"
             ),
             "temperature": ConfigField(
                 type=float,

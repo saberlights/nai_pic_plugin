@@ -17,6 +17,9 @@ from src.common.logger import get_logger
 from src.plugin_system import llm_api
 
 from .session_state import session_state
+from ..rules.selfie_rules import get_selfie_hint
+from ..utils.prompt_output_parser import parse_prompt_from_structured_output
+from ..utils.prompt_postprocessor import normalize_prompt_order
 
 logger = get_logger("nai_pic_plugin")
 
@@ -29,7 +32,7 @@ class PromptGeneratorService:
         service = PromptGeneratorService(self.get_config, self.log_prefix)
         prompt = await service.generate_prompt(
             request_text="画一张初音未来",
-            selfie_mode=False,
+            is_selfie=False,
             platform="qq",
             chat_id="123456"
         )
@@ -47,7 +50,7 @@ class PromptGeneratorService:
     async def generate_prompt(
         self,
         request_text: str,
-        selfie_mode: bool = False,
+        is_selfie: bool = False,
         platform: str = "",
         chat_id: str = ""
     ) -> Optional[str]:
@@ -56,7 +59,7 @@ class PromptGeneratorService:
 
         Args:
             request_text: 用户原始请求
-            selfie_mode: 是否自拍模式
+            is_selfie: 是否自拍模式
             platform: 平台标识（用于检查 NSFW 过滤）
             chat_id: 会话ID（用于检查 NSFW 过滤）
 
@@ -82,20 +85,32 @@ class PromptGeneratorService:
         if not prompt_template:
             # 从 rules 模块导入默认模板
             try:
-                from ..rules.prompt_rules import PROMPT_GENERATOR_TEMPLATE, SFW_PROMPT_GENERATOR_TEMPLATE
+                from ..rules.prompt_rules import (
+                    PROMPT_GENERATOR_TEMPLATE,
+                    SFW_PROMPT_GENERATOR_TEMPLATE,
+                    PROMPT_GENERATOR_JSON_TEMPLATE,
+                    SFW_PROMPT_GENERATOR_JSON_TEMPLATE,
+                )
+                output_format = (generator_config.get("output_format") or "text").strip().lower()
                 if nsfw_filter_enabled:
-                    prompt_template = SFW_PROMPT_GENERATOR_TEMPLATE
+                    prompt_template = (
+                        SFW_PROMPT_GENERATOR_JSON_TEMPLATE
+                        if output_format == "json"
+                        else SFW_PROMPT_GENERATOR_TEMPLATE
+                    )
                 else:
-                    prompt_template = PROMPT_GENERATOR_TEMPLATE
+                    prompt_template = (
+                        PROMPT_GENERATOR_JSON_TEMPLATE
+                        if output_format == "json"
+                        else PROMPT_GENERATOR_TEMPLATE
+                    )
             except ImportError:
                 # 兼容旧路径
                 from ..prompt_rules import PROMPT_GENERATOR_TEMPLATE
                 prompt_template = PROMPT_GENERATOR_TEMPLATE
 
         # 渲染模板
-        prompt = self._render_template(
-            prompt_template, request_text, selfie_mode, platform, chat_id
-        )
+        prompt = self._render_template(prompt_template, request_text, is_selfie)
 
         # 获取 LLM 模型配置
         model_config = self._resolve_model_config(generator_config.get("model_name", ""))
@@ -127,7 +142,13 @@ class PromptGeneratorService:
 
         # 清理响应
         cleaned = self._cleanup_response(response)
-        return cleaned if cleaned else None
+        if not cleaned:
+            return None
+
+        if self.get_config("prompt_generator.enforce_tag_order", False):
+            cleaned = normalize_prompt_order(cleaned)
+
+        return cleaned
 
     def _get_generator_config(self) -> Dict[str, Any]:
         """获取提示词生成器配置，兼容新旧配置节"""
@@ -137,16 +158,13 @@ class PromptGeneratorService:
         self,
         template: str,
         request: str,
-        selfie_mode: bool,
-        platform: str,
-        chat_id: str
+        is_selfie: bool
     ) -> str:
         """渲染提示词模板"""
         selfie_hint = ""
-        if selfie_mode:
-            selfie_hint = (
-                "\n\n【自拍模式】请确保提示词体现前置相机、近距离取景等自拍视角，同时严格遵守上述规则。"
-            )
+        if is_selfie:
+            # 获取完整的自拍提示，让 LLM 自己选择类型
+            selfie_hint = get_selfie_hint()
 
         prompt = template.replace("<<SELFIE_HINT>>", selfie_hint).strip()
         prompt = prompt.replace("<<USER_REQUEST>>", request.strip() or "N/A")
@@ -220,6 +238,12 @@ class PromptGeneratorService:
         """
         if not prompt:
             return ""
+
+        # 优先尝试解析结构化 JSON 输出（成功则不再做文本清洗，避免误伤多人 | 分段）
+        parsed = parse_prompt_from_structured_output(prompt)
+        if parsed:
+            logger.debug(f"{self.log_prefix} 结构化提示词解析命中（JSON->prompt），将跳过文本清洗")
+            return parsed
 
         cleaned = prompt.strip()
 

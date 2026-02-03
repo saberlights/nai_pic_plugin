@@ -13,7 +13,18 @@ from ..mixins.auto_recall_mixin import AutoRecallMixin
 from ..utils.image_url_helper import save_base64_image_to_file
 from ..mixins.model_config_mixin import ModelConfigMixin
 from ..rules.prompt_rules import PROMPT_GENERATOR_TEMPLATE, SFW_PROMPT_GENERATOR_TEMPLATE
+from ..rules.selfie_rules import (
+    detect_selfie_mode,
+    get_selfie_hint,
+    merge_selfie_prompt,
+)
 from ..services.session_state import session_state
+from ..utils.prompt_output_parser import parse_prompt_from_structured_output
+from ..utils.prompt_postprocessor import (
+    normalize_prompt_order,
+    remove_selfie_appearance_tags,
+    user_mentions_appearance,
+)
 
 logger = get_logger("nai_pic_plugin")
 
@@ -96,19 +107,19 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
 
         # 获取参数
         description = (self.action_data.get("description") or "").strip()
+        raw_description = description
         size = (self.action_data.get("size") or "").strip()
         selfie_mode_raw = self.action_data.get("selfie_mode", False)
-        selfie_mode = self._normalize_bool(selfie_mode_raw)
+        selfie_mode_param = self._normalize_bool(selfie_mode_raw)
+
+        # 检测自拍模式（简化：只检测是否触发，类型让 LLM 自己判断）
+        is_selfie = detect_selfie_mode(description) or selfie_mode_param
 
         # 始终使用LLM生成提示词
-        generated_prompt = await self._generate_prompt_with_llm(selfie_mode, description)
+        generated_prompt = await self._generate_prompt_with_llm(is_selfie, description)
         if generated_prompt:
             description = generated_prompt.strip()
-            logger.info(f"{self.log_prefix} [LLM触发] 已通过LLM自动生成提示词: {description}")
-
-            # 检查是否需要显示提示词
-            if self._is_prompt_show_enabled():
-                await self.send_text(f"📝 提示词:\n{description}", storage_message=False)
+            logger.debug(f"{self.log_prefix} [LLM触发] 原始提示词: {description}")
         elif description:
             logger.info(f"{self.log_prefix} [LLM触发] 使用Planner提供的提示词（LLM提示词生成被禁用或失败）")
         else:
@@ -116,15 +127,39 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
             await self.send_text("提示词生成器开小差了，请直接告诉我想画什么，或者稍后再试一次~")
             return False, "图片描述为空"
 
-        # 处理自拍模式
-        if selfie_mode:
-            description = self._process_selfie_prompt(description)
+        # 处理自拍模式（添加角色特征）
+        selfie_base_prompt = description
+        if is_selfie:
+            # 实际生图提示词（可能包含配置文件中的自拍补充提示词）
+            description = self._process_selfie_prompt(
+                selfie_base_prompt,
+                raw_description,
+                include_selfie_prompt_add=True,
+                log_changes=True,
+            )
             logger.debug(f"{self.log_prefix} [LLM触发] 自拍模式已启用")
 
-        # 清��和验证描述
-        if len(description) > 1000:
-            description = description[:1000]
-            logger.debug(f"{self.log_prefix} [LLM触发] 提示词已截断至1000字符")
+        # 轻量排序（可配置关闭）
+        if self.get_config("prompt_generator.enforce_tag_order", False):
+            description = normalize_prompt_order(description)
+
+        logger.info(f"{self.log_prefix} [LLM触发] 最终提示词: {description}")
+
+        # 检查是否需要显示提示词（展示最终提示词，避免与实际生图不一致）
+        if self._is_prompt_show_enabled():
+            show_prompt = description
+            header = "📝 提示词:"
+            if is_selfie and self.get_config("prompt_show.hide_selfie_prompt_add", False):
+                show_prompt = self._process_selfie_prompt(
+                    selfie_base_prompt,
+                    raw_description,
+                    include_selfie_prompt_add=False,
+                    log_changes=False,
+                )
+                header = "📝 提示词(已隐藏自拍补充):"
+            await self.send_text(f"{header}\n{show_prompt}", storage_message=False)
+
+        # 不再默认截断提示词：多人 | 分段与权重语法很容易被截断破坏
 
         # 获取模型配置
         model_config = self._get_model_config()
@@ -231,13 +266,36 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
 
         return result
 
-    def _process_selfie_prompt(self, description: str) -> str:
-        """处理自拍模式的提示词，添加selfie_prompt_add配置"""
+    def _process_selfie_prompt(
+        self,
+        description: str,
+        raw_request: str = "",
+        include_selfie_prompt_add: bool = True,
+        log_changes: bool = True,
+    ) -> str:
+        """处理自拍模式的提示词：可选移除随机外貌 + （可选）合并配置中的自拍特征"""
         model_config = self._get_model_config()
         selfie_prompt_add = model_config.get("selfie_prompt_add", "") if model_config else ""
 
-        if selfie_prompt_add:
-            return f"{selfie_prompt_add}, {description}"
+        policy = (self.get_config("prompt_generator.selfie_appearance_policy", "auto") or "auto").strip().lower()
+        user_specified = user_mentions_appearance(raw_request)
+
+        original = description
+
+        # auto: 合并前先移除 LLM 随机外貌（保留配置中的自拍特征）
+        if policy in {"auto", "never"} and not user_specified and policy == "auto":
+            description = remove_selfie_appearance_tags(description)
+
+        if include_selfie_prompt_add and selfie_prompt_add:
+            description = merge_selfie_prompt(description, selfie_prompt_add)
+
+        # never: 合并后再移除一次（连配置外貌也移除），但用户明确指定时不移除
+        if policy in {"auto", "never"} and not user_specified and policy == "never":
+            description = remove_selfie_appearance_tags(description)
+
+        if log_changes and description != original:
+            logger.debug(f"{self.log_prefix} [LLM触发] 自拍提示词后处理已生效：policy={policy}, user_specified={user_specified}")
+
         return description
 
     def _is_auto_recall_enabled(self, platform: str, chat_id: str) -> bool:
@@ -267,7 +325,11 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
             return bool(value)
         return False
 
-    async def _generate_prompt_with_llm(self, selfie_mode: bool, request_text: Optional[str] = None) -> Optional[str]:
+    async def _generate_prompt_with_llm(
+        self,
+        is_selfie: bool,
+        request_text: Optional[str] = None
+    ) -> Optional[str]:
         """使用LLM生成英文提示词"""
         generator_config = self._get_prompt_generator_config()
 
@@ -287,14 +349,23 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
         except Exception:
             nsfw_filter_enabled = False
 
-        # 根据过滤状态选择模板
+        # 根据过滤状态与输出格式选择模板
+        output_format = (generator_config.get("output_format") or "text").strip().lower()
         if nsfw_filter_enabled:
-            default_template = SFW_PROMPT_GENERATOR_TEMPLATE
+            if output_format == "json":
+                from ..rules.prompt_rules import SFW_PROMPT_GENERATOR_JSON_TEMPLATE
+                default_template = SFW_PROMPT_GENERATOR_JSON_TEMPLATE
+            else:
+                default_template = SFW_PROMPT_GENERATOR_TEMPLATE
         else:
-            default_template = PROMPT_GENERATOR_TEMPLATE
+            if output_format == "json":
+                from ..rules.prompt_rules import PROMPT_GENERATOR_JSON_TEMPLATE
+                default_template = PROMPT_GENERATOR_JSON_TEMPLATE
+            else:
+                default_template = PROMPT_GENERATOR_TEMPLATE
 
         prompt_template = generator_config.get("prompt_template") or default_template
-        prompt = self._render_generator_prompt(prompt_template, raw_request, selfie_mode)
+        prompt = self._render_generator_prompt(prompt_template, raw_request, is_selfie)
 
         model_config = self._resolve_llm_model_config(generator_config.get("model_name", ""))
         if not model_config:
@@ -343,13 +414,17 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
         logger.debug(f"{self.log_prefix} [LLM触发] 无法从 action_message 提取用户请求")
         return ""
 
-    def _render_generator_prompt(self, template: str, original_request: str, selfie_mode: bool) -> str:
+    def _render_generator_prompt(
+        self,
+        template: str,
+        original_request: str,
+        is_selfie: bool
+    ) -> str:
         """将占位符替换为实际内容"""
         selfie_hint = ""
-        if selfie_mode:
-            selfie_hint = (
-                "\n\n【自拍模式】请确保提示词体现前置相机、近距离取景等自拍视角，同时严格遵守上述规则。"
-            )
+        if is_selfie:
+            # 获取完整的自拍提示，让 LLM 自己选择类型
+            selfie_hint = get_selfie_hint()
 
         prompt = template.replace("<<SELFIE_HINT>>", selfie_hint).strip()
         prompt = prompt.replace("<<USER_REQUEST>>", original_request.strip() or "N/A")
@@ -407,6 +482,12 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
         import re
         if not prompt:
             return ""
+
+        parsed = parse_prompt_from_structured_output(prompt)
+        if parsed:
+            logger.debug(f"{self.log_prefix} [LLM触发] 结构化提示词解析命中（JSON->prompt），将跳过文本清洗")
+            return parsed
+
         cleaned = prompt.strip()
 
         # 处理代码块包裹

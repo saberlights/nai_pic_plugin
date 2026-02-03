@@ -1,0 +1,226 @@
+# -*- coding: utf-8 -*-
+"""
+提示词后处理工具
+
+目标：
+- 自拍模式：在用户未明确指定外貌时，去掉容易产生“随机外貌”的标签（如 black hair/long hair）
+- 轻量排序：把人物数量/视角类标签前置，把 year xxxx 放到末尾，降低“顺序混乱”的体感
+
+说明：
+- 这里的规则是“温和纠正”，不会尝试完整实现 Danbooru 全分类排序（容易误判、反而更乱）。
+"""
+
+from __future__ import annotations
+
+import re
+from typing import List
+
+
+_COUNT_RE = re.compile(r"^(?:solo|\d+girls|\d+boys|\d+people|1girl|1boy)$", re.IGNORECASE)
+_YEAR_RE = re.compile(r"^year\s+\d{4}$", re.IGNORECASE)
+
+# 只覆盖少量“稳定且高频”的构图/视角/自拍标签，用于轻量前置
+_CAMERA_TAGS = {
+    "pov",
+    "female pov",
+    "looking at viewer",
+    "from above",
+    "from below",
+    "wide angle",
+    "close-up",
+    "close up",
+    "full body",
+    "upper body",
+    "lower body",
+    "selfie",
+    "mirror selfie",
+    "group selfie",
+    "selfie stick",
+    "holding phone",
+}
+
+
+def user_mentions_appearance(raw_request: str) -> bool:
+    """粗略判断用户是否明确提及外貌（发色/发型/眼睛等）。"""
+    if not raw_request:
+        return False
+
+    s = raw_request.lower()
+    # 中文关键词（偏保守，宁可认为“用户提了”）
+    cn_keys = [
+        "头发", "发色", "发型", "长发", "短发", "双马尾", "马尾", "刘海",
+        "黑发", "金发", "白发", "粉发", "蓝发", "红发", "紫发", "银发", "棕发",
+        "眼睛", "瞳", "瞳色", "蓝瞳", "红瞳", "金瞳", "绿瞳", "紫瞳",
+        # 口语缩写（常见二次元描述）
+        "黑长直",
+    ]
+    if any(k in raw_request for k in cn_keys):
+        return True
+
+    # 英文关键词
+    en_keys = ["hair", "haired", "eyes", "eyed", "twintails", "ponytail", "bangs"]
+    return any(k in s for k in en_keys)
+
+
+def _strip_wrappers(tag: str) -> str:
+    """去掉常见权重/括号包装，便于规则匹配（不改变原 tag 输出，仅用于判断）。"""
+    t = tag.strip()
+    # 去掉 NAI 花括号/方括号
+    t = t.lstrip("{[(").rstrip("}])")
+    t = t.strip()
+    # 去掉 NAI4/4.5 权重前缀与后缀，如 1.2::blue hair::
+    t = re.sub(r"^[+-]?\d+(?:\.\d+)?::", "", t).strip()
+    t = re.sub(r"::\s*$", "", t).strip()
+    return t
+
+
+def remove_selfie_appearance_tags(prompt: str) -> str:
+    """
+    去掉自拍里常见的“随机外貌标签”（发色/发型/瞳色）。
+
+    只移除明确的外貌 tag，尽量不伤及配饰（如 hair ribbon / hair ornament）。
+    """
+    if not prompt or not prompt.strip():
+        return prompt
+
+    # 如果包含 NAI4/4.5 高级权重语法，字符串级按逗号拆分有概率破坏语法，直接跳过
+    # （想要在这种情况下也过滤，需要让 LLM 输出数组结构再做安全过滤）
+    if "::" in prompt:
+        return prompt
+
+    hair_colors = {
+        "black", "blonde", "brown", "blue", "pink", "white", "silver",
+        "red", "green", "purple", "orange", "gray", "grey", "aqua", "cyan",
+    }
+    eye_colors = {
+        "black", "brown", "blue", "red", "green", "purple", "orange",
+        "gray", "grey", "golden", "yellow", "pink", "aqua", "cyan",
+    }
+    hair_styles_exact = {
+        "twintails",
+        "twin tails",
+        "ponytail",
+        "side ponytail",
+        "braid",
+        "side braid",
+        "pigtails",
+        "hair bun",
+        "bun",
+        "bob cut",
+        "hime cut",
+        "bangs",
+        "blunt bangs",
+        "straight hair",
+        "wavy hair",
+        "curly hair",
+        "messy hair",
+    }
+
+    def should_remove(tag: str) -> bool:
+        core = _strip_wrappers(tag).lower()
+        core = re.sub(r"\s+", " ", core).strip()
+
+        # 明确配饰：不移除
+        if "hair" in core and any(x in core for x in ("ribbon", "ornament", "clip", "pin", "bow", "band", "flower")):
+            return False
+
+        # 发色：xxx hair / xxx-haired
+        m = re.match(r"^([a-z]+)\s+hair$", core)
+        if m and m.group(1) in hair_colors:
+            return True
+        if re.match(r"^[a-z]+-haired$", core):
+            return True
+
+        # 发型/长度：long hair / very long hair / short hair / medium hair
+        if re.match(r"^(?:very )?(?:long|short|medium)\s+hair$", core):
+            return True
+
+        # 常见发型词
+        if core in hair_styles_exact:
+            return True
+
+        # 瞳色：xxx eyes
+        m2 = re.match(r"^([a-z]+)\s+eyes$", core)
+        if m2 and m2.group(1) in eye_colors:
+            return True
+
+        return False
+
+    lines = prompt.split("\n")
+    out_lines: List[str] = []
+    for line in lines:
+        raw = line.strip()
+        if not raw:
+            continue
+
+        prefix = ""
+        if raw.startswith("|"):
+            prefix = "|"
+            raw = raw[1:].strip()
+
+        tags = [t.strip() for t in raw.split(",") if t.strip()]
+        filtered = [t for t in tags if not should_remove(t)]
+
+        joined = ", ".join(filtered)
+        if prefix:
+            out_lines.append(f"{prefix} {joined}".strip())
+        else:
+            out_lines.append(joined)
+
+    return "\n".join(out_lines).strip()
+
+
+def normalize_prompt_order(prompt: str) -> str:
+    """
+    轻量排序（尽量不“过度聪明”）：
+    - 把人数/solo 等放到最前
+    - 把 POV/自拍/视角等常见镜头词前置
+    - 把 year xxxx 放到末尾
+    """
+    if not prompt or not prompt.strip():
+        return prompt
+
+    lines = prompt.split("\n")
+    out_lines: List[str] = []
+    for line in lines:
+        raw = line.strip()
+        if not raw:
+            continue
+
+        prefix = ""
+        if raw.startswith("|"):
+            prefix = "|"
+            raw = raw[1:].strip()
+
+        tags = [t.strip() for t in raw.split(",") if t.strip()]
+        if not tags:
+            continue
+
+        counts: List[str] = []
+        cameras: List[str] = []
+        years: List[str] = []
+        rest: List[str] = []
+
+        for t in tags:
+            core = _strip_wrappers(t)
+            core_norm = re.sub(r"\s+", " ", core).strip().lower()
+
+            if _YEAR_RE.match(core_norm):
+                years.append(t)
+            elif _COUNT_RE.match(core_norm):
+                counts.append(t)
+            elif core_norm in _CAMERA_TAGS:
+                cameras.append(t)
+            else:
+                rest.append(t)
+
+        # 视角类标签通常比 1girl/1boy 更“前置有效”，所以输出时把 camera 放在 count 之前
+        # 但保留原始相对顺序（分别在各自组内稳定）
+        new_tags = cameras + counts + rest + years
+        joined = ", ".join(new_tags).strip()
+        if prefix:
+            out_lines.append(f"{prefix} {joined}".strip())
+        else:
+            out_lines.append(joined)
+
+    return "\n".join(out_lines).strip()

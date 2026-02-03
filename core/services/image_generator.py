@@ -15,6 +15,8 @@ from typing import Tuple, Optional, Any, Callable, Awaitable
 
 from src.common.logger import get_logger
 
+from ..rules.selfie_rules import merge_selfie_prompt
+
 logger = get_logger("nai_pic_plugin")
 
 
@@ -197,7 +199,7 @@ class ImageGenerationService:
 
     def process_selfie_prompt(self, prompt: str, model_config: dict) -> str:
         """
-        处理自拍模式的提示词
+        处理自拍模式的提示词，使用智能合并避免冲突
 
         Args:
             prompt: 原始提示词
@@ -208,5 +210,6 @@ class ImageGenerationService:
         """
         selfie_prompt_add = model_config.get("selfie_prompt_add", "")
         if selfie_prompt_add:
-            return f"{selfie_prompt_add}, {prompt}"
+            # 使用智能合并函数，避免标签冲突
+            return merge_selfie_prompt(prompt, selfie_prompt_add)
         return prompt

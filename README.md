@@ -6,7 +6,7 @@
 - 🚀 简单易用：使用 `/nai` 命令 + 自然语言描述即可生图，无需学习复杂语法
 - 🤖 智能生成：LLM 自动将中文描述转换为优化的英文提示词
 - 🎨 智能画师串：LLM + Danbooru API 自动生成、验证和优化画师组合串
-- 📸 自拍模式：支持自动添加 Bot 形象特征，生成个性化自拍图片
+- 📸 自拍模式：智能识别 24 种自拍关键词，支持 6 种自拍类型，自动添加 Bot 形象特征
 - ⚡ 自动撤回：可配置图片自动撤回，保护隐私
 - 🎭 模型切换：支持快速切换 NAI 3/4/4.5 等不同版本模型
 - 🖼️ 尺寸切换：支持快速切换竖图/横图/方图
@@ -23,7 +23,7 @@
 - ✅ **Danbooru API 集成**：自动验证画师标签有效性，显示画师稳定性评级
 - ✅ **命令模式**：`/nai` 命令支持直接输入中文描述，无需掌握 NAI 语法
 - ✅ **直接标签模式**：`/nai0` 命令直接使用英文标签生图，跳过 LLM 处理
-- ✅ **自拍模式**：支持自动添加自拍视角和 Bot 形象特征
+- ✅ **自拍模式**：智能识别 24 种自拍关键词，支持 6 种自拍类型（手机前置、镜子、高角度、低角度、合照、自拍杆）
 - ✅ **模型切换**：支持通过命令快速切换 NAI 3/f3/4/4.5 等模型（会话级别）
 - ✅ **尺寸切换**：支持通过 `/nai size` 命令快速切换竖图/横图/方图
 - ✅ **画师风格预设**：支持多套画师串预设，可自定义命名，通过配置文件设置
@@ -32,6 +32,9 @@
 - ✅ **管理员权限控制**：支持开启管理员模式，限制生图命令仅管理员可用
 - ✅ **分版本配置**：NAI V3/V4/V4.5 各版本独立配置参数和画师串
 - ✅ **自定义 LLM 模型**：支持配置自定义 LLM 模型用于提示词和画师串生成
+- ✅ **结构化输出**：支持 JSON 格式的 LLM 输出，提升多人场景解析准确性
+- ✅ **自拍外貌策略**：可配置自拍模式下的外貌标签处理策略（自动移除/保留/禁用）
+- ✅ **提示词后处理**：支持轻量标签排序，优化提示词结构
 - ✅ 使用 NAI 格式提示词（大括号权重语法）
 - ✅ 文生图功能
 - ✅ 支持多种采样器（k_euler, k_euler_ancestral 等）
@@ -210,6 +213,7 @@ filter_tags = "{{{{{nsfw}}}}}"  # NSFW过滤标签（高权重），启用时自
 ```toml
 [prompt_show]
 enabled = false  # 是否默认启用提示词显示（使用 /nai pt on|off 可在运行时切换）
+hide_selfie_prompt_add = false  # 自拍模式下是否隐藏配置文件中的自拍补充提示词
 ```
 
 ### 提示词生成配置
@@ -221,6 +225,9 @@ enabled = false  # 是否默认启用提示词显示（使用 /nai pt on|off 可
 model_name = ""          # 指定LLM模型代号，留空则自动选择
 temperature = 0.2        # LLM温度
 max_tokens = 200         # LLM输出上限
+output_format = "text"   # LLM输出格式："text"（默认）或 "json"（结构化输出，适合多人场景）
+selfie_appearance_policy = "auto"  # 自拍外貌标签策略："auto"（自动移除LLM随机外貌）/"never"（全部移除）/"keep"（保留所有）
+enforce_tag_order = false  # 是否启用轻量标签排序（人数/视角前置，year后置）
 # prompt_template = """自定义模板，支持 <<USER_REQUEST>> 和 <<SELFIE_HINT>> 占位符"""
 
 # 自定义模型配置（可选）
@@ -233,6 +240,15 @@ slow_threshold = 30.0
 ```
 
 > `prompt_template` 可选；默认会使用与旧版 `description` 完全一致的生成规则，并且会把用户描述按照"主体→视角→服装→动作→环境→氛围→细节"的顺序重排成结构化文本，再交给 LLM。`<<STRUCTURED_REQUEST>>` 会注入这些槽位内容，`<<USER_REQUEST>>` 则是未经处理的原文，`<<SELFIE_HINT>>` 仅在自拍模式下插入额外指令。
+
+**`output_format` 说明**：
+- `text`（默认）：LLM 直接输出逗号分隔的 tag 文本
+- `json`：LLM 输出 JSON 结构（`version=2`，包含 `global` 和 `people` 数组），程序自动解析并渲染为多人 `|` 分段格式。适合多人场景，减少 LLM 格式错误
+
+**`selfie_appearance_policy` 说明**：
+- `auto`（默认）：自拍模式下，自动移除 LLM 随机生成的外貌标签（发色、发型、瞳色等），保留配置文件中的角色特征。用户明确描述外貌时不移除
+- `never`：移除所有外貌标签（包括配置文件中的），仅保留动作、场景、氛围等
+- `keep`：保留所有外貌标签，不做处理
 
 ### 画师串生成配置
 
@@ -278,7 +294,8 @@ Bot: [生成Bot自拍风格的图片]
 **命令模式特点**：
 - 自然语言描述即可，无需掌握 NAI 提示词语法
 - 自动使用 LLM 将描述转换为优化的英文提示词
-- 支持自拍模式（描述中包含"自拍"或"selfie"）
+- 支持自拍模式（描述中包含"自拍"、"镜子"、"合照"等 24 种关键词均可触发）
+- 支持 6 种自拍类型：手机前置、镜子自拍、高角度俯拍、低角度仰拍、合照、自拍杆
 - 自动按照 NovelAI 推荐顺序整理提示词
 
 ### 2. 直接标签模式
@@ -593,7 +610,21 @@ A: 使用 `/nai pt on` 开启提示词显示，生图时会先显示 LLM 生成�
 A: 使用 `/nai help` 命令查看完整的命令帮助信息。
 
 ### Q: 如何使用自拍模式？
-A: 在 `/nai` 命令描述中包含"自拍"或"selfie"关键词即可，例如：`/nai 自拍，微笑`。自拍模式会自动添加配置文件中 `selfie_prompt_add` 设置的 Bot 形象特征和自拍视角。
+A: 在 `/nai` 命令描述中包含自拍相关关键词即可自动触发。支持的关键词包括：
+- 基础词：自拍、selfie、镜子、mirror
+- 动作词：手机拍、前置相机、自拍杆、合照、合影
+- 角度词：俯拍、仰拍、高角度、低角度
+- 其他：拍照、照镜子、给自己拍等
+
+支持 6 种自拍类型，LLM 会根据描述自动选择最合适的类型：
+1. 手机前置自拍（默认）
+2. 镜子自拍
+3. 高角度俯拍
+4. 低角度仰拍
+5. 合照自拍
+6. 自拍杆自拍
+
+自拍模式会自动添加配置文件中 `selfie_prompt_add` 设置的 Bot 形象特征。可通过 `selfie_appearance_policy` 配置外貌标签的处理策略。
 
 ### Q: 支持图生图吗？
 A: 不支持，本插件仅支持文生图。如需图生图，请使用 `custom_pic_plugin` 插件。
@@ -643,21 +674,36 @@ nai_pic_plugin/
 ├── config.toml            # 配置文件
 ├── __init__.py            # 模块初始化
 ├── _manifest.json         # 插件清单
+├── generated_images/      # 生成的图片缓存目录
 └── core/
     ├── actions/           # 动作组件（关键词触发生图）
+    │   └── nai_pic_action.py
     ├── commands/          # 命令组件
     │   ├── nai_draw_command.py        # /nai 命令（LLM 生图）
     │   ├── nai_0_draw_command.py      # /nai0 命令（直接标签生图）
     │   ├── nai_artist_command.py      # /nai artgen/artr/artfix 命令（画师串生成）
-    │   ├── nai_admin_command.py       # /nai st/sp 命令（管理员模式）
+    │   ├── nai_admin_command.py       # /nai st/sp/set/size/art 命令
     │   ├── nai_recall_command.py      # /nai on/off 命令（自动撤回）
     │   ├── nai_nsfw_command.py        # /nai nsfw 命令（NSFW过滤）
     │   └── nai_prompt_show_command.py # /nai pt 命令（提示词显示）
     ├── clients/           # API 客户端
+    │   └── nai_web_client.py
     ├── mixins/            # 混入类（自动撤回、模型配置等）
-    ├── rules/             # 提示词模板和画师串生成规则
+    │   ├── model_config_mixin.py
+    │   └── auto_recall_mixin.py
+    ├── rules/             # 提示词模板和规则
+    │   ├── prompt_rules.py            # LLM 提示词生成规则
+    │   ├── artist_rules.py            # 画师串生成规则
+    │   └── selfie_rules.py            # 自拍模式规则（24关键词、6类型）
     ├── services/          # 会话状态管理服务
-    └── utils/             # 工具类（Danbooru API、图片处理等）
+    │   ├── session_state.py
+    │   ├── prompt_generator.py
+    │   └── image_generator.py
+    └── utils/             # 工具类
+        ├── danbooru_api.py            # Danbooru API 集成
+        ├── image_url_helper.py        # 图片处理工具
+        ├── prompt_output_parser.py    # LLM 结构化输出解析
+        └── prompt_postprocessor.py    # 提示词后处理（排序、外貌移除）
 ```
 
 ## 许可证
@@ -669,6 +715,19 @@ GPL-v3.0-or-later
 Rabbit
 
 ## 更新日志
+
+### v1.4.0 (2025-02-03)
+- 新增自拍模式增强：支持 24 种触发关键词、6 种自拍类型（手机前置、镜子、高角度、低角度、合照、自拍杆）
+- 新增 JSON 结构化输出格式（`output_format = "json"`），提升多人场景解析准确性
+- 新增自拍外貌标签策略配置（`selfie_appearance_policy`）：auto/never/keep 三种模式
+- 新增轻量标签排序功能（`enforce_tag_order`）：人数/视角前置、year 后置
+- 新增提示词显示隐藏自拍补充选项（`hide_selfie_prompt_add`）
+- 新增 `selfie_rules.py`：独立的自拍模式规则模块
+- 新增 `prompt_output_parser.py`：LLM 结构化输出解析工具
+- 新增 `prompt_postprocessor.py`：提示词后处理工具（排序、外貌标签移除）
+- 优化 LLM 提示词模板：移除固定词组库，改为更灵活的标签知识指导
+- 优化多人 | 分段格式处理逻辑
+- 移除提示词默认 1000 字符截断限制
 
 ### v1.3.0 (2025-01-28)
 - 新增 `/nai artgen <风格描述>` LLM 智能画师串生成功能
