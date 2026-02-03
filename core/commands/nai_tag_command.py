@@ -36,8 +36,6 @@ class NaiTaggerCommand(BaseCommand):
     command_description = "引用回复图片打标：/打标"
     command_pattern = r"(?:.*，说：\s*)?/打标$"
 
-    _USER_PROMPT = "继续完成 TODO中 的 工 作"
-
     async def execute(self) -> Tuple[bool, Optional[str], bool]:
         # 基础校验：必须是引用回复
         reply_message_id = self._extract_reply_message_id()
@@ -340,8 +338,6 @@ class NaiTaggerCommand(BaseCommand):
             '  "PROMPT": "...",\n'
             '  "NEGATIVE": "..."\n'
             "}\n"
-            "\n"
-            f"【额外提示词】\n{self._USER_PROMPT}\n"
         )
 
     def _format_nai_prompt(self, character_tags, work_tags, tags) -> str:
