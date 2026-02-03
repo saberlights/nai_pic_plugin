@@ -13,6 +13,7 @@ from .core.commands.nai_0_draw_command import Nai0DrawCommand
 from .core.commands.nai_admin_command import NaiAdminControlCommand
 from .core.commands.nai_prompt_show_command import NaiPromptShowCommand
 from .core.commands.nai_artist_command import NaiArtistCommand
+from .core.commands.nai_tag_command import NaiTaggerCommand
 
 
 @register_plugin
@@ -43,6 +44,7 @@ class NaiPicPlugin(BasePlugin):
         "prompt_generator.custom_model": "自定义LLM模型配置（支持多模型、负载均衡）",
         "artist_generator": "画师串生成配置",
         "artist_generator.custom_model": "画师串生成自定义LLM模型配置",
+        "tagger": "图片打标配置（/打标）",
     }
 
     # 配置Schema
@@ -479,6 +481,43 @@ class NaiPicPlugin(BasePlugin):
                 description="自定义模型配置（可选），model_list 中的模型名称必须是系统 model_config 中已定义的模型"
             )
         },
+        "tagger": {
+            "enabled": ConfigField(
+                type=bool,
+                default=True,
+                description="是否启用 /打标 命令"
+            ),
+            "model_task": ConfigField(
+                type=str,
+                default="vlm",
+                description="打标使用的模型任务名（对应 model_config.model_task_config.<name>，默认 vlm）"
+            ),
+            "custom_model": ConfigField(
+                type=dict,
+                default={
+                    "model_list": [],
+                    "max_tokens": 1024,
+                    "temperature": 0.2,
+                    "slow_threshold": 30.0
+                },
+                description=(
+                    "打标专用自定义模型配置（可选）。"
+                    "当 model_list 非空时将优先使用该配置，完全独立于 model_task。"
+                    "若未显式设置 tagger.max_tokens/tagger.temperature，将默认采用这里的同名值。"
+                    "注意：所选模型必须支持图像输入。"
+                )
+            ),
+            "temperature": ConfigField(
+                type=float,
+                default=0.2,
+                description="打标模型温度（越低越稳定）"
+            ),
+            "max_tokens": ConfigField(
+                type=int,
+                default=1200,
+                description="打标模型最大输出 token"
+            ),
+        },
     }
 
     def get_plugin_components(self) -> List[Tuple[ComponentInfo, Type]]:
@@ -492,4 +531,6 @@ class NaiPicPlugin(BasePlugin):
         components.append((Nai0DrawCommand.get_command_info(), Nai0DrawCommand))
         components.append((NaiPromptShowCommand.get_command_info(), NaiPromptShowCommand))
         components.append((NaiArtistCommand.get_command_info(), NaiArtistCommand))
+        if self.get_config("tagger.enabled", True):
+            components.append((NaiTaggerCommand.get_command_info(), NaiTaggerCommand))
         return components

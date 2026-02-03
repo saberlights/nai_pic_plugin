@@ -107,6 +107,22 @@ api_key = "your-api-key"  # API Token
 default_model = "nai-diffusion-4-5-full"  # 默认模型名称
 ```
 
+### 打标配置（/打标）
+
+`/打标` 会读取你“引用回复”的那条图片消息，对图片做 Danbooru/NAI 风格打标，并输出一行可直接复制给 NAI 的 prompt（角色(作品)+tags）。
+
+推荐使用 `custom_model` 单独配置打标模型（完全独立于其它任务；`model_list` 需为支持图像输入的多模态模型）：
+
+```toml
+[tagger]
+enabled = true
+
+# 单独配置打标模型（推荐）
+custom_model = { model_list = ["gemini-3-pro-preview"], max_tokens = 1200, temperature = 0.2, slow_threshold = 30.0 }
+
+# max_tokens 是“请求上限”，最终是否截断取决于模型/提供商自身上限；建议 800~4096
+```
+
 ### 分版本模型配置
 
 插件支持为 NAI V3、V4、V4.5 分别配置参数。根据当前使用的模型自动加载对应配置：
@@ -565,6 +581,7 @@ Bot: ❌ 当前会话已开启管理员模式，仅管理员可使用此命令
 | `/nai on/off` | 开关自动撤回 |
 | `/nai st/sp` | 开关管理员模式（仅管理员） |
 | `/nai help` | 查看帮助信息 |
+| `/打标` | 引用回复图片进行打标，输出一行可直接复制给 NAI 的 prompt（角色(作品)+tags） |
 
 ## 注意事项
 
