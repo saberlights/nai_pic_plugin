@@ -27,9 +27,19 @@ SELFIE_TRIGGER_KEYWORDS = [
 # ==================== 完整的自拍提示（让 LLM 自己选择类型）====================
 
 SELFIE_HINT_FOR_LLM = """
-【自拍模式】用户正在请求自拍风格的图片。
+【自拍模式判定与规则】
 
-【硬规则（最高优先级）】
+## 自拍意图判定（必须执行）
+请根据用户请求判断是否存在自拍/自画像意图。以下情况应判定为自拍：
+- 直接提到自拍相关词：自拍、selfie、镜子、前置摄像头等
+- 向 bot 索要照片/展示：看你的、给我看、秀一下、拍给我看、发张照片、show me 等
+- 暗示 bot 本人出镜：你穿、你的黑丝、你的腿、你今天穿了什么等
+- 提到拍照动作：拍一张、照一张、合照、合影等
+
+**如果判定不是自拍意图，忽略下方所有自拍规则，按正常模式生成。**
+**如果判定为自拍意图，必须应用以下全部规则：**
+
+## 自拍硬规则（最高优先级）
 - 除非用户明确要求外貌（发色/发型/瞳色等），否则禁止输出任何外貌描述类标签（hair/eyes/发型/瞳色等）
 - 你可以且应该补充：自拍类型、镜头构图、动作姿势、背景环境、光影氛围（这些是本插件希望你补充的重点）
 
@@ -103,6 +113,23 @@ def detect_selfie_mode(description: str) -> bool:
             return True
 
     return False
+
+
+# LLM 输出中的自拍标签（用于从生成结果判断是否为自拍）
+_SELFIE_OUTPUT_TAGS = [
+    "selfie", "mirror selfie", "group selfie", "selfie stick",
+    "self-shot", "self shot",
+]
+
+
+def detect_selfie_from_output(prompt: str) -> bool:
+    """从 LLM 生成的提示词中检测是否包含自拍标签。
+
+    用于在 LLM 自行判定自拍意图后，从输出结果决定是否执行后处理
+    （合并角色特征、移除外貌标签等）。
+    """
+    prompt_lower = prompt.lower()
+    return any(tag in prompt_lower for tag in _SELFIE_OUTPUT_TAGS)
 
 
 def get_selfie_hint() -> str:

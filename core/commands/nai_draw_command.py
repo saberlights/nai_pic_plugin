@@ -16,7 +16,7 @@ from ..utils.image_url_helper import save_base64_image_to_file
 from ..mixins.model_config_mixin import ModelConfigMixin
 from ..rules.prompt_rules import PROMPT_GENERATOR_TEMPLATE, SFW_PROMPT_GENERATOR_TEMPLATE
 from ..rules.selfie_rules import (
-    detect_selfie_mode,
+    detect_selfie_from_output,
     get_selfie_hint,
     merge_selfie_prompt,
 )
@@ -58,11 +58,8 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
             await self.send_text("请输入你想画的内容，例如：/nai 画一张初音未来")
             return False, "未提供描述", True
 
-        # 检测是否为自拍模式（简化：只检测是否触发，类型让 LLM 自己判断）
-        is_selfie = detect_selfie_mode(description)
-
-        # 使用 LLM 生成提示词
-        generated_prompt = await self._generate_prompt_with_llm(is_selfie, description)
+        # 使用 LLM 生成提示词（自拍意图由 LLM 自行判断）
+        generated_prompt = await self._generate_prompt_with_llm(description)
 
         if not generated_prompt:
             logger.warning(f"{self.log_prefix} [LLM生图] 提示词生成失败")
@@ -70,6 +67,9 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
             return False, "提示词生成失败", True
 
         logger.debug(f"{self.log_prefix} [LLM生图] 原始提示词: {generated_prompt}")
+
+        # 从 LLM 输出检测是否为自拍
+        is_selfie = detect_selfie_from_output(generated_prompt)
 
         # 处理自拍模式（添加角色特征）
         selfie_base_prompt = generated_prompt
@@ -181,10 +181,9 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
 
     async def _generate_prompt_with_llm(
         self,
-        is_selfie: bool,
         request_text: str
     ) -> Optional[str]:
-        """使用 LLM 生成英文提示词"""
+        """使用 LLM 生成英文提示词（自拍意图由 LLM 自行判断）"""
         generator_config = self._get_prompt_generator_config()
 
         # 检查是否启用 NSFW 过滤，选择对应模板
@@ -212,7 +211,7 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
                 default_template = PROMPT_GENERATOR_TEMPLATE
 
         prompt_template = generator_config.get("prompt_template") or default_template
-        prompt = self._render_generator_prompt(prompt_template, request_text, is_selfie)
+        prompt = self._render_generator_prompt(prompt_template, request_text)
 
         # 获取 LLM 模型配置
         model_config = self._resolve_llm_model_config(generator_config.get("model_name", ""))
@@ -246,13 +245,10 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
         self,
         template: str,
         original_request: str,
-        is_selfie: bool
     ) -> str:
         """渲染提示词生成模板"""
-        selfie_hint = ""
-        if is_selfie:
-            # 获取完整的自拍提示，让 LLM 自己选择类型
-            selfie_hint = get_selfie_hint()
+        # 永远注入自拍提示，由 LLM 自行判断是否为自拍意图
+        selfie_hint = get_selfie_hint()
 
         prompt = template.replace("<<SELFIE_HINT>>", selfie_hint).strip()
         prompt = prompt.replace("<<USER_REQUEST>>", original_request.strip() or "N/A")
