@@ -172,6 +172,7 @@ class PromptGeneratorService:
             selfie_hint = get_selfie_hint()
 
         prompt = template.replace("<<CUSTOM_SYSTEM_PROMPT>>", custom_system_prompt).strip()
+        prompt = prompt.replace("<<PREVIOUS_PROMPT>>", "").strip()
         prompt = prompt.replace("<<SELFIE_HINT>>", selfie_hint).strip()
         prompt = prompt.replace("<<USER_REQUEST>>", request.strip() or "N/A")
         return prompt

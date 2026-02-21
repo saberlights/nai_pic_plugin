@@ -14,22 +14,32 @@ if _spec is None or _spec.loader is None:
 _mod = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_mod)  # type: ignore[union-attr]
 
-compose_prompt_generator_request = _mod.compose_prompt_generator_request
+render_previous_prompt_block = _mod.render_previous_prompt_block
 extract_last_prompt_from_record_display = _mod.extract_last_prompt_from_record_display
 LAST_PROMPT_RECORD_PREFIX = _mod.LAST_PROMPT_RECORD_PREFIX
 
 
 class PromptMemoryTest(unittest.TestCase):
-    def test_compose_without_last_prompt(self):
-        out = compose_prompt_generator_request("画一张初音未来", None)
-        self.assertEqual(out, "画一张初音未来")
+    def test_render_without_last_prompt_returns_empty(self):
+        self.assertEqual(render_previous_prompt_block(None), "")
+        self.assertEqual(render_previous_prompt_block(""), "")
+        self.assertEqual(render_previous_prompt_block("   "), "")
 
-    def test_compose_with_last_prompt_contains_markers(self):
-        out = compose_prompt_generator_request("把背景换成夜景", "solo, 1girl, smile")
-        self.assertIn("<previous_prompt>", out)
-        self.assertIn("solo, 1girl, smile", out)
-        self.assertIn("把背景换成夜景", out)
-        self.assertIn("继承规则", out)
+    def test_render_with_last_prompt_contains_xml_block(self):
+        block = render_previous_prompt_block("solo, 1girl, smile")
+        self.assertIn("<previous_prompt_context>", block)
+        self.assertIn("</previous_prompt_context>", block)
+        self.assertIn("solo, 1girl, smile", block)
+        self.assertIn("继承规则", block)
+        self.assertIn("必须遵守", block)
+
+    def test_render_block_does_not_contain_old_compose_patterns(self):
+        """render_previous_prompt_block should not contain old compose patterns"""
+        block = render_previous_prompt_block("solo, 1girl, smile")
+        # Old compose_prompt_generator_request patterns should be absent
+        self.assertNotIn("可被丢弃", block)
+        self.assertNotIn("本次用户要求", block)
+        self.assertNotIn("<<USER_REQUEST>>", block)
 
     def test_extract_last_prompt_from_record_display(self):
         display = f"{LAST_PROMPT_RECORD_PREFIX}\nsolo, 1girl, smile"
@@ -41,4 +51,3 @@ class PromptMemoryTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

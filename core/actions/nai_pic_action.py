@@ -20,7 +20,7 @@ from ..rules.selfie_rules import (
 )
 from ..services.session_state import session_state
 from ..services.prompt_memory import (
-    compose_prompt_generator_request,
+    render_previous_prompt_block,
     load_last_prompt_from_action_records,
     LAST_PROMPT_RECORD_PREFIX,
 )
@@ -345,15 +345,13 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
             logger.warning(f"{self.log_prefix} [LLM触发] 无法提取原始用户请求，提示词生成终止")
             return None
 
-        # 注入上一轮提示词（全群共享：按 chat_stream.stream_id 存取）
+        # 加载上一轮提示词（全群共享：按 chat_stream.stream_id 存取）
         chat_stream_id = getattr(self, "chat_id", "") or ""
         last_prompt = session_state.get_last_nai_prompt(chat_stream_id)
         if not last_prompt and chat_stream_id:
             last_prompt = load_last_prompt_from_action_records(chat_stream_id, self.action_name)
             if last_prompt:
                 session_state.set_last_nai_prompt(chat_stream_id, last_prompt)
-
-        injected_request = compose_prompt_generator_request(raw_request, last_prompt)
 
         # 检查是否启用 NSFW 过滤，选择对应模板
         try:
@@ -380,7 +378,7 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
                 default_template = PROMPT_GENERATOR_TEMPLATE
 
         prompt_template = generator_config.get("prompt_template") or default_template
-        prompt = self._render_generator_prompt(prompt_template, injected_request, is_selfie)
+        prompt = self._render_generator_prompt(prompt_template, raw_request, is_selfie, last_prompt)
 
         model_config = self._resolve_llm_model_config(generator_config.get("model_name", ""))
         if not model_config:
@@ -441,15 +439,26 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
         self,
         template: str,
         original_request: str,
-        is_selfie: bool
+        is_selfie: bool,
+        last_prompt: Optional[str] = None,
     ) -> str:
         """将占位符替换为实际内容"""
+        # 自定义系统提示词
+        custom_system_prompt = self.get_config("custom_prompt.system_prompt", "") or ""
+        if custom_system_prompt:
+            custom_system_prompt = custom_system_prompt.strip() + "\n\n"
+
         selfie_hint = ""
         if is_selfie:
             # 获取完整的自拍提示，让 LLM 自己选择类型
             selfie_hint = get_selfie_hint()
 
-        prompt = template.replace("<<SELFIE_HINT>>", selfie_hint).strip()
+        # 上一轮提示词 block
+        previous_block = render_previous_prompt_block(last_prompt)
+
+        prompt = template.replace("<<CUSTOM_SYSTEM_PROMPT>>", custom_system_prompt).strip()
+        prompt = prompt.replace("<<PREVIOUS_PROMPT>>", previous_block).strip()
+        prompt = prompt.replace("<<SELFIE_HINT>>", selfie_hint).strip()
         prompt = prompt.replace("<<USER_REQUEST>>", original_request.strip() or "N/A")
         return prompt
 
