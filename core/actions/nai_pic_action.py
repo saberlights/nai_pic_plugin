@@ -19,6 +19,11 @@ from ..rules.selfie_rules import (
     merge_selfie_prompt,
 )
 from ..services.session_state import session_state
+from ..services.prompt_memory import (
+    compose_prompt_generator_request,
+    load_last_prompt_from_action_records,
+    LAST_PROMPT_RECORD_PREFIX,
+)
 from ..utils.prompt_output_parser import parse_prompt_from_structured_output
 from ..utils.prompt_postprocessor import (
     normalize_prompt_order,
@@ -340,6 +345,16 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
             logger.warning(f"{self.log_prefix} [LLM触发] 无法提取原始用户请求，提示词生成终止")
             return None
 
+        # 注入上一轮提示词（全群共享：按 chat_stream.stream_id 存取）
+        chat_stream_id = getattr(self, "chat_id", "") or ""
+        last_prompt = session_state.get_last_nai_prompt(chat_stream_id)
+        if not last_prompt and chat_stream_id:
+            last_prompt = load_last_prompt_from_action_records(chat_stream_id, self.action_name)
+            if last_prompt:
+                session_state.set_last_nai_prompt(chat_stream_id, last_prompt)
+
+        injected_request = compose_prompt_generator_request(raw_request, last_prompt)
+
         # 检查是否启用 NSFW 过滤，选择对应模板
         try:
             platform, chat_id, _ = self._get_chat_identity()
@@ -365,7 +380,7 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
                 default_template = PROMPT_GENERATOR_TEMPLATE
 
         prompt_template = generator_config.get("prompt_template") or default_template
-        prompt = self._render_generator_prompt(prompt_template, raw_request, is_selfie)
+        prompt = self._render_generator_prompt(prompt_template, injected_request, is_selfie)
 
         model_config = self._resolve_llm_model_config(generator_config.get("model_name", ""))
         if not model_config:
@@ -394,7 +409,15 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
             return None
 
         cleaned = self._cleanup_llm_prompt(response)
-        return cleaned if cleaned else None
+        if not cleaned:
+            return None
+
+        # 写入本轮 LLM 生成的提示词（内存 + 持久化）
+        if chat_stream_id:
+            session_state.set_last_nai_prompt(chat_stream_id, cleaned)
+            await self._persist_last_prompt_record(cleaned)
+
+        return cleaned
 
     def _extract_user_request_text(self) -> str:
         """尝试从当前消息提取用户描述
@@ -429,6 +452,20 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
         prompt = template.replace("<<SELFIE_HINT>>", selfie_hint).strip()
         prompt = prompt.replace("<<USER_REQUEST>>", original_request.strip() or "N/A")
         return prompt
+
+    async def _persist_last_prompt_record(self, prompt: str) -> None:
+        """将上一轮提示词写入 ActionRecords，便于重启后恢复。"""
+        text = (prompt or "").strip()
+        if not text:
+            return
+        try:
+            await self.store_action_info(
+                action_build_into_prompt=False,
+                action_prompt_display=f"{LAST_PROMPT_RECORD_PREFIX}\n{text}",
+                action_done=True,
+            )
+        except Exception as e:
+            logger.debug(f"{self.log_prefix} [LLM触发] last_prompt 持久化失败: {e}")
 
     def _resolve_llm_model_config(self, preferred_name: str):
         """根据配置选择可用LLM模型"""

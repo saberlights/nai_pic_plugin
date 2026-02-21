@@ -161,12 +161,18 @@ class PromptGeneratorService:
         is_selfie: bool
     ) -> str:
         """渲染提示词模板"""
+        # 获取自定义系统提示词
+        custom_system_prompt = self.get_config("custom_prompt.system_prompt", "") or ""
+        if custom_system_prompt:
+            custom_system_prompt = custom_system_prompt.strip() + "\n\n"
+
         selfie_hint = ""
         if is_selfie:
             # 获取完整的自拍提示，让 LLM 自己选择类型
             selfie_hint = get_selfie_hint()
 
-        prompt = template.replace("<<SELFIE_HINT>>", selfie_hint).strip()
+        prompt = template.replace("<<CUSTOM_SYSTEM_PROMPT>>", custom_system_prompt).strip()
+        prompt = prompt.replace("<<SELFIE_HINT>>", selfie_hint).strip()
         prompt = prompt.replace("<<USER_REQUEST>>", request.strip() or "N/A")
         return prompt
 

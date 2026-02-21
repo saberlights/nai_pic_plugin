@@ -67,6 +67,10 @@ class SessionStateManager:
         # 画师串预览图模式：{chat_key: bool}
         self._artist_preview: Dict[str, bool] = {}
 
+        # 上一轮 LLM 生成的正向提示词（用于 action 生图上下文继承）
+        # key 使用 chat_stream.stream_id（BaseAction.chat_id），天然实现“全群共享”
+        self._last_nai_prompt: Dict[str, str] = {}
+
     @staticmethod
     def _make_key(platform: str, chat_id: str) -> str:
         """生成会话唯一标识"""
@@ -371,6 +375,22 @@ class SessionStateManager:
         self._prompt_show.pop(key, None)
         self._artist_preview.pop(key, None)
         logger.info(f"[nai_pic] 会话 {key} 状态已清除")
+
+    # ==================== 上一轮提示词（Action 专用） ====================
+
+    def get_last_nai_prompt(self, chat_stream_id: str) -> Optional[str]:
+        """获取指定聊天流的上一轮 LLM 提示词（仅 action 生图使用）"""
+        if not chat_stream_id:
+            return None
+        return self._last_nai_prompt.get(chat_stream_id)
+
+    def set_last_nai_prompt(self, chat_stream_id: str, prompt: str) -> None:
+        """设置指定聊天流的上一轮 LLM 提示词（仅 action 生图使用）"""
+        if not chat_stream_id:
+            return
+        if not isinstance(prompt, str) or not prompt.strip():
+            return
+        self._last_nai_prompt[chat_stream_id] = prompt.strip()
 
 
 # 全局单例实例

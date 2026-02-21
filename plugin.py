@@ -45,6 +45,7 @@ class NaiPicPlugin(BasePlugin):
         "artist_generator": "画师串生成配置",
         "artist_generator.custom_model": "画师串生成自定义LLM模型配置",
         "tagger": "图片打标配置（/打标）",
+        "custom_prompt": "自定义系统提示词配置",
     }
 
     # 配置Schema
@@ -516,6 +517,13 @@ class NaiPicPlugin(BasePlugin):
                 type=int,
                 default=1200,
                 description="打标模型最大输出 token"
+            ),
+        },
+        "custom_prompt": {
+            "system_prompt": ConfigField(
+                type=str,
+                default="",
+                description="自定义系统提示词，会添加到 LLM 提示词规则的最前面，可用于自定义额外指导或规则"
             ),
         },
     }
