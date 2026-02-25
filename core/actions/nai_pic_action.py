@@ -23,8 +23,10 @@ from ..rules.selfie_rules import (
 from ..services.session_state import session_state
 from ..services.prompt_memory import (
     render_previous_prompt_block,
-    load_last_prompt_from_action_records,
+    load_last_context_from_action_records,
     LAST_PROMPT_RECORD_PREFIX,
+    _REQ_LINE_PREFIX,
+    _REQ_SEPARATOR,
 )
 from ..utils.prompt_output_parser import parse_prompt_from_structured_output
 from ..utils.prompt_postprocessor import (
@@ -360,11 +362,18 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
 
         # 加载上一轮提示词（全群共享：按 chat_stream.stream_id 存取）
         chat_stream_id = getattr(self, "chat_id", "") or ""
-        last_prompt = session_state.get_last_nai_prompt(chat_stream_id)
+        inherit_ttl = float(self.get_config("prompt_generator.inherit_ttl", 0) or 0)
+        last_prompt, last_request = session_state.get_last_nai_context(
+            chat_stream_id, ttl=inherit_ttl
+        )
         if not last_prompt and chat_stream_id:
-            last_prompt = load_last_prompt_from_action_records(chat_stream_id, self.action_name)
+            last_prompt, last_request = load_last_context_from_action_records(
+                chat_stream_id, self.action_name, ttl=inherit_ttl
+            )
             if last_prompt:
-                session_state.set_last_nai_prompt(chat_stream_id, last_prompt)
+                session_state.set_last_nai_context(
+                    chat_stream_id, last_prompt, last_request or ""
+                )
 
         # 检查是否启用 NSFW 过滤，选择对应模板
         try:
@@ -391,7 +400,7 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
                 default_template = PROMPT_GENERATOR_TEMPLATE
 
         prompt_template = generator_config.get("prompt_template") or default_template
-        prompt = self._render_generator_prompt(prompt_template, raw_request, last_prompt)
+        prompt = self._render_generator_prompt(prompt_template, raw_request, last_prompt, last_request)
 
         model_config = self._resolve_llm_model_config(generator_config.get("model_name", ""))
         if not model_config:
@@ -425,8 +434,8 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
 
         # 写入本轮 LLM 生成的提示词（内存 + 持久化）
         if chat_stream_id:
-            session_state.set_last_nai_prompt(chat_stream_id, cleaned)
-            await self._persist_last_prompt_record(cleaned)
+            session_state.set_last_nai_context(chat_stream_id, cleaned, raw_request)
+            await self._persist_last_prompt_record(cleaned, raw_request)
 
         return cleaned
 
@@ -453,6 +462,7 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
         template: str,
         original_request: str,
         last_prompt: Optional[str] = None,
+        last_request: Optional[str] = None,
     ) -> str:
         """将占位符替换为实际内容"""
         # 自定义系统提示词
@@ -464,7 +474,7 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
         selfie_hint = get_selfie_hint()
 
         # 上一轮提示词 block
-        previous_block = render_previous_prompt_block(last_prompt)
+        previous_block = render_previous_prompt_block(last_prompt, last_request)
 
         prompt = template.replace("<<CUSTOM_SYSTEM_PROMPT>>", custom_system_prompt).strip()
         prompt = prompt.replace("<<PREVIOUS_PROMPT>>", previous_block).strip()
@@ -472,15 +482,20 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
         prompt = prompt.replace("<<USER_REQUEST>>", original_request.strip() or "N/A")
         return prompt
 
-    async def _persist_last_prompt_record(self, prompt: str) -> None:
+    async def _persist_last_prompt_record(self, prompt: str, request: str = "") -> None:
         """将上一轮提示词写入 ActionRecords，便于重启后恢复。"""
         text = (prompt or "").strip()
         if not text:
             return
+        req = (request or "").strip()
+        if req:
+            display = f"{LAST_PROMPT_RECORD_PREFIX}\n{_REQ_LINE_PREFIX}{req}\n{_REQ_SEPARATOR}\n{text}"
+        else:
+            display = f"{LAST_PROMPT_RECORD_PREFIX}\n{text}"
         try:
             await self.store_action_info(
                 action_build_into_prompt=False,
-                action_prompt_display=f"{LAST_PROMPT_RECORD_PREFIX}\n{text}",
+                action_prompt_display=display,
                 action_done=True,
             )
         except Exception as e:

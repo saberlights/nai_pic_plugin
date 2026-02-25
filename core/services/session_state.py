@@ -13,7 +13,8 @@
 
 替代原来分散在各个 Command 类中的状态字典
 """
-from typing import Optional, Dict, List, Callable, Any
+import time
+from typing import Optional, Dict, List, Tuple, Callable, Any
 from src.common.logger import get_logger
 
 logger = get_logger("nai_pic_plugin")
@@ -68,8 +69,9 @@ class SessionStateManager:
         self._artist_preview: Dict[str, bool] = {}
 
         # 上一轮 LLM 生成的正向提示词（用于 action 生图上下文继承）
-        # key 使用 chat_stream.stream_id（BaseAction.chat_id），天然实现“全群共享”
-        self._last_nai_prompt: Dict[str, str] = {}
+        # key 使用 chat_stream.stream_id（BaseAction.chat_id），天然实现”全群共享”
+        # value = (prompt, request, timestamp)
+        self._last_nai_context: Dict[str, Tuple[str, str, float]] = {}
 
     @staticmethod
     def _make_key(platform: str, chat_id: str) -> str:
@@ -378,19 +380,56 @@ class SessionStateManager:
 
     # ==================== 上一轮提示词（Action 专用） ====================
 
-    def get_last_nai_prompt(self, chat_stream_id: str) -> Optional[str]:
-        """获取指定聊天流的上一轮 LLM 提示词（仅 action 生图使用）"""
-        if not chat_stream_id:
-            return None
-        return self._last_nai_prompt.get(chat_stream_id)
+    def get_last_nai_context(
+        self, chat_stream_id: str, ttl: float = 0
+    ) -> Tuple[Optional[str], Optional[str]]:
+        """获取指定聊天流的上一轮 LLM 提示词及用户请求。
 
-    def set_last_nai_prompt(self, chat_stream_id: str, prompt: str) -> None:
-        """设置指定聊天流的上一轮 LLM 提示词（仅 action 生图使用）"""
+        Args:
+            chat_stream_id: 聊天流 ID
+            ttl: 有效时间（秒），>0 时检查过期；过期则删除并返回 (None, None)
+
+        Returns:
+            (prompt, request)；无数据或已过期时返回 (None, None)
+        """
+        if not chat_stream_id:
+            return None, None
+        entry = self._last_nai_context.get(chat_stream_id)
+        if entry is None:
+            return None, None
+        prompt, request, ts = entry
+        if ttl > 0 and (time.time() - ts) > ttl:
+            self._last_nai_context.pop(chat_stream_id, None)
+            return None, None
+        return prompt, request or None
+
+    def set_last_nai_context(
+        self, chat_stream_id: str, prompt: str, request: str = ""
+    ) -> None:
+        """设置指定聊天流的上一轮 LLM 提示词及用户请求。
+
+        自动附带当前时间戳。
+        """
         if not chat_stream_id:
             return
         if not isinstance(prompt, str) or not prompt.strip():
             return
-        self._last_nai_prompt[chat_stream_id] = prompt.strip()
+        self._last_nai_context[chat_stream_id] = (
+            prompt.strip(),
+            (request or "").strip(),
+            time.time(),
+        )
+
+    # ---- 兼容包装器（旧调用方仍可使用） ----
+
+    def get_last_nai_prompt(self, chat_stream_id: str) -> Optional[str]:
+        """获取指定聊天流的上一轮 LLM 提示词（仅 action 生图使用）"""
+        prompt, _ = self.get_last_nai_context(chat_stream_id)
+        return prompt
+
+    def set_last_nai_prompt(self, chat_stream_id: str, prompt: str) -> None:
+        """设置指定聊天流的上一轮 LLM 提示词（仅 action 生图使用）"""
+        self.set_last_nai_context(chat_stream_id, prompt)
 
 
 # 全局单例实例

@@ -435,6 +435,11 @@ class NaiPicPlugin(BasePlugin):
                 default="",
                 description="自定义提示词生成模板，支持<<USER_REQUEST>>和<<SELFIE_HINT>>占位符"
             ),
+            "inherit_ttl": ConfigField(
+                type=int,
+                default=3600,
+                description="上一轮提示词继承的有效时间（秒），超过后不再继承。默认3600（1小时），0=永不过期"
+            ),
             "custom_model": ConfigField(
                 type=dict,
                 default={
