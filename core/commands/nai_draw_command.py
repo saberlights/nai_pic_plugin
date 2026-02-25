@@ -27,6 +27,7 @@ from ..utils.prompt_postprocessor import (
     remove_selfie_appearance_tags,
     user_mentions_appearance,
 )
+from ..constants import NAI_PIC_IMAGE_DISPLAY_MARKER
 
 logger = get_logger("nai_pic_plugin")
 
@@ -36,7 +37,7 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
 
     command_name = "nai_draw"
     command_description = "使用自然语言描述生成图片，例如：/nai 画一张初音未来"
-    command_pattern = r"(?:.*，说：\s*)?/nai\s+(?!on$|off$|st$|sp$|set\b|art\b|artgen\b|artr$|artfix\b|size\b|help$|pt\s|nsfw\b)(?P<description>.+)$"
+    command_pattern = r"(?:.*，说：\s*)?/nai\s+(?!on$|off$|st$|sp$|set\b|art\b|artgen\b|artr$|artfix\b|size\b|help$|pt\s|nsfw\b|撤回$)(?P<description>.+)$"
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -137,7 +138,11 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
                 if final_image_data.startswith(("http://", "https://")):
                     # 直接发送图片 URL（参考 lolicon 插件）
                     try:
-                        send_success = await self.send_custom("imageurl", final_image_data)
+                        send_success = await self.send_custom(
+                            "imageurl",
+                            final_image_data,
+                            display_message=NAI_PIC_IMAGE_DISPLAY_MARKER,
+                        )
                         if send_success:
                             self._last_send_timestamp = send_time
                             if enable_debug:
@@ -155,10 +160,19 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
                     # Base64 格式 -> 保存为文件并以URL方式发送
                     image_path = save_base64_image_to_file(final_image_data)
                     if image_path:
-                        send_success = await self.send_custom("imageurl", f"file://{image_path}")
+                        send_success = await self.send_custom(
+                            "imageurl",
+                            f"file://{image_path}",
+                            display_message=NAI_PIC_IMAGE_DISPLAY_MARKER,
+                        )
                     else:
                         logger.warning(f"{self.log_prefix} [LLM生图] 图片保存失败，回退为Base64发送")
-                        send_success = await self.send_image(final_image_data)
+                        # 这里改用 send_custom("image", ...) 以便写入 display_message 标记
+                        send_success = await self.send_custom(
+                            "image",
+                            final_image_data,
+                            display_message=NAI_PIC_IMAGE_DISPLAY_MARKER,
+                        )
 
                     if send_success:
                         self._last_send_timestamp = send_time

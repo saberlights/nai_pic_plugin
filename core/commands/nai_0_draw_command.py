@@ -13,6 +13,7 @@ from ..mixins.auto_recall_mixin import AutoRecallMixin
 from ..utils.image_url_helper import save_base64_image_to_file
 from ..mixins.model_config_mixin import ModelConfigMixin
 from ..services.session_state import session_state
+from ..constants import NAI_PIC_IMAGE_DISPLAY_MARKER
 
 logger = get_logger("nai_pic_plugin")
 
@@ -85,7 +86,11 @@ class Nai0DrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
                 if final_image_data.startswith(("http://", "https://")):
                     # 直接发送图片 URL
                     try:
-                        send_success = await self.send_custom("imageurl", final_image_data)
+                        send_success = await self.send_custom(
+                            "imageurl",
+                            final_image_data,
+                            display_message=NAI_PIC_IMAGE_DISPLAY_MARKER,
+                        )
                         if send_success:
                             self._last_send_timestamp = send_time
                             if enable_debug:
@@ -103,10 +108,18 @@ class Nai0DrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
                     # Base64 格式 -> 保存为文件并以URL方式发送
                     image_path = save_base64_image_to_file(final_image_data)
                     if image_path:
-                        send_success = await self.send_custom("imageurl", f"file://{image_path}")
+                        send_success = await self.send_custom(
+                            "imageurl",
+                            f"file://{image_path}",
+                            display_message=NAI_PIC_IMAGE_DISPLAY_MARKER,
+                        )
                     else:
                         logger.warning(f"{self.log_prefix} [直接生图] 图片保存失败，回退为Base64发送")
-                        send_success = await self.send_image(final_image_data)
+                        send_success = await self.send_custom(
+                            "image",
+                            final_image_data,
+                            display_message=NAI_PIC_IMAGE_DISPLAY_MARKER,
+                        )
 
                     if send_success:
                         self._last_send_timestamp = send_time

@@ -7,9 +7,11 @@ from src.plugin_system.base.base_action import BaseAction
 from src.plugin_system.base.component_types import ActionActivationType, ChatMode
 from src.common.logger import get_logger
 from src.plugin_system import llm_api
+from src.plugin_system.apis import send_api
 
 from ..clients.nai_web_client import NaiWebClient
 from ..mixins.auto_recall_mixin import AutoRecallMixin
+from ..constants import NAI_PIC_IMAGE_DISPLAY_MARKER
 from ..utils.image_url_helper import save_base64_image_to_file
 from ..mixins.model_config_mixin import ModelConfigMixin
 from ..rules.prompt_rules import PROMPT_GENERATOR_TEMPLATE, SFW_PROMPT_GENERATOR_TEMPLATE
@@ -205,21 +207,30 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
 
             if final_image_data:
                 if final_image_data.startswith(("iVBORw", "/9j/", "UklGR", "R0lGOD")):  # Base64
-                    temp_message_id = f"send_api_{int(time.time() * 1000)}"
                     send_time = time.time()
                     image_path = save_base64_image_to_file(final_image_data)
                     image_content = f"file://{image_path}" if image_path else None
                     if image_content:
-                        send_success = await self.send_custom("imageurl", image_content)
+                        send_success = await send_api.custom_to_stream(
+                            message_type="imageurl",
+                            content=image_content,
+                            stream_id=self.chat_id,
+                            display_message=NAI_PIC_IMAGE_DISPLAY_MARKER,
+                        )
                     else:
                         logger.warning(f"{self.log_prefix} [LLM触发] 图片保存失败，回退为Base64发送")
-                        send_success = await self.send_image(final_image_data)
+                        send_success = await send_api.custom_to_stream(
+                            message_type="image",
+                            content=final_image_data,
+                            stream_id=self.chat_id,
+                            display_message=NAI_PIC_IMAGE_DISPLAY_MARKER,
+                        )
 
                     if send_success:
                         self._last_send_timestamp = send_time
                         if enable_debug:
                             await self.send_text("图片生成完成！")
-                        await self._schedule_auto_recall(temp_message_id)
+                        await self._schedule_auto_recall()
                         return True, "图片已成功生成并发送"
                     else:
                         await self.send_text("图片已处理完成，但发送失败了")
@@ -227,7 +238,12 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
                 elif final_image_data.startswith(("http://", "https://")):
                     send_time = time.time()
                     try:
-                        send_success = await self.send_custom("imageurl", final_image_data)
+                        send_success = await send_api.custom_to_stream(
+                            message_type="imageurl",
+                            content=final_image_data,
+                            stream_id=self.chat_id,
+                            display_message=NAI_PIC_IMAGE_DISPLAY_MARKER,
+                        )
                         if send_success:
                             self._last_send_timestamp = send_time
                             if enable_debug:

@@ -13,7 +13,13 @@ if PLUGIN_DIR not in sys.path:
     sys.path.insert(0, PLUGIN_DIR)
 
 
-from core.mixins.auto_recall_mixin import _extract_sender_user_id, _is_image_message, _text_looks_like_image
+from core.constants import NAI_PIC_IMAGE_DISPLAY_MARKER
+from core.mixins.auto_recall_mixin import (
+    _extract_sender_user_id,
+    _is_image_message,
+    _is_nai_pic_plugin_image_message,
+    _text_looks_like_image,
+)
 
 
 class _DummyUserInfo:
@@ -50,7 +56,20 @@ class AutoRecallMixinUtilsTest(unittest.TestCase):
         msg_dict = {"message_info": {"user_info": {"user_id": "456"}}}
         self.assertEqual(_extract_sender_user_id(msg_dict), "456")
 
+    def test_is_nai_pic_plugin_image_message_marker(self):
+        msg = _DummyMsg("bot", "[imageurl:file:///a.png]")
+        msg.display_message = NAI_PIC_IMAGE_DISPLAY_MARKER
+        self.assertTrue(_is_nai_pic_plugin_image_message(msg))
+
+        msg2 = _DummyMsg("bot", "[imageurl:file:///a.png]")
+        self.assertFalse(_is_nai_pic_plugin_image_message(msg2))
+
+        msg_dict = {
+            "processed_plain_text": "[imageurl:file:///a.png]",
+            "display_message": NAI_PIC_IMAGE_DISPLAY_MARKER,
+        }
+        self.assertTrue(_is_nai_pic_plugin_image_message(msg_dict))
+
 
 if __name__ == "__main__":
     unittest.main()
-

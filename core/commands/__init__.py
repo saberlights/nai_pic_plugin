@@ -9,6 +9,7 @@ from .nai_nsfw_command import NaiNsfwControlCommand
 from .nai_prompt_show_command import NaiPromptShowCommand
 from .nai_artist_command import NaiArtistCommand
 from .nai_tag_command import NaiTaggerCommand
+from .nai_manual_recall_command import NaiManualRecallCommand
 
 __all__ = [
     "NaiDrawCommand",
@@ -19,4 +20,5 @@ __all__ = [
     "NaiPromptShowCommand",
     "NaiArtistCommand",
     "NaiTaggerCommand",
+    "NaiManualRecallCommand",
 ]

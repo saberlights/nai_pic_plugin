@@ -14,6 +14,7 @@ from .core.commands.nai_admin_command import NaiAdminControlCommand
 from .core.commands.nai_prompt_show_command import NaiPromptShowCommand
 from .core.commands.nai_artist_command import NaiArtistCommand
 from .core.commands.nai_tag_command import NaiTaggerCommand
+from .core.commands.nai_manual_recall_command import NaiManualRecallCommand
 
 
 @register_plugin
@@ -541,4 +542,5 @@ class NaiPicPlugin(BasePlugin):
         components.append((NaiArtistCommand.get_command_info(), NaiArtistCommand))
         if self.get_config("tagger.enabled", True):
             components.append((NaiTaggerCommand.get_command_info(), NaiTaggerCommand))
+        components.append((NaiManualRecallCommand.get_command_info(), NaiManualRecallCommand))
         return components

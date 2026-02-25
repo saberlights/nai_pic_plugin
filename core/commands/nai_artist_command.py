@@ -1051,15 +1051,20 @@ class NaiArtistCommand(ModelConfigMixin, BaseCommand):
 
             # 发送图片
             from ..utils.image_url_helper import save_base64_image_to_file
+            from ..constants import NAI_PIC_IMAGE_DISPLAY_MARKER
 
             if result.startswith(("http://", "https://")):
-                await self.send_custom("imageurl", result)
+                await self.send_custom("imageurl", result, display_message=NAI_PIC_IMAGE_DISPLAY_MARKER)
             elif result.startswith(("iVBORw", "/9j/", "UklGR", "R0lGOD")):
                 image_path = save_base64_image_to_file(result)
                 if image_path:
-                    await self.send_custom("imageurl", f"file://{image_path}")
+                    await self.send_custom(
+                        "imageurl",
+                        f"file://{image_path}",
+                        display_message=NAI_PIC_IMAGE_DISPLAY_MARKER,
+                    )
                 else:
-                    await self.send_image(result)
+                    await self.send_custom("image", result, display_message=NAI_PIC_IMAGE_DISPLAY_MARKER)
             else:
                 logger.warning(f"{self.log_prefix} [画师串] 预览图格式无法识别")
                 return
@@ -1149,4 +1154,3 @@ class NaiArtistCommand(ModelConfigMixin, BaseCommand):
         except Exception as e:
             logger.error(f"{self.log_prefix} [画师串] 检查用户权限时出错: {e}", exc_info=True)
             return True
-

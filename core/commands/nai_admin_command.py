@@ -188,8 +188,12 @@ class NaiAdminControlCommand(BaseCommand):
   示例：/nai size 横
 
 【自动撤回】
-/nai on - 开启图片自动撤回功能
-/nai off - 关闭图片自动撤回功能
+/nai on - 开启图片自动撤回功能（仅管理员可用）
+/nai off - 关闭图片自动撤回功能（仅管理员可用）
+
+【手动撤回】
+/nai 撤回 - 撤回本插件最近发送的一张图片（所有人可用）
+  或：引用回复本插件生成的图片后发送 /nai 撤回
 
 【提示词显示】
 /nai pt on - 开启提示词显示

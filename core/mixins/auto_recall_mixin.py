@@ -6,6 +6,8 @@ from src.chat.utils.utils import parse_platform_accounts
 from src.common.logger import get_logger
 from src.config.config import global_config
 
+from ..constants import NAI_PIC_IMAGE_DISPLAY_MARKER
+
 logger = get_logger("nai_pic_plugin")
 
 
@@ -129,6 +131,23 @@ def _is_image_message(msg: Any) -> bool:
         return False
 
 
+def _is_nai_pic_plugin_image_message(msg: Any) -> bool:
+    """
+    判断消息是否为“本插件发送的图片消息”。
+
+    规则：
+    - 必须是图片消息（image/imageurl/picid 等）
+    - 且 display_message 中包含本插件标记（该字段只会写入 bot 发送消息）
+    """
+    try:
+        display_message = _extract_message_field(msg, "display_message")
+        if not isinstance(display_message, str) or NAI_PIC_IMAGE_DISPLAY_MARKER not in display_message:
+            return False
+        return _is_image_message(msg)
+    except Exception:
+        return False
+
+
 class AutoRecallMixin:
     """提供自动撤回相关的通用方法"""
 
@@ -203,10 +222,8 @@ class AutoRecallMixin:
 
             await asyncio.sleep(1.0)
 
-            message_id = await self._get_last_message_id()
-            if not message_id and placeholder_message_id:
-                logger.debug(f"{self.log_prefix} 使用占位消息ID作为兜底: {placeholder_message_id}")
-                message_id = placeholder_message_id
+            # 自动撤回通常发生在发送后很短时间内，窗口不用太大（避免大群高频下查询过重）
+            message_id = await self._get_last_message_id(require_marker=True, hours=0.5, limit=80)
             if not message_id:
                 logger.warning(f"{self.log_prefix} 未能获取消息ID，无法自动撤回")
                 return
@@ -215,7 +232,7 @@ class AutoRecallMixin:
             initial_message_id = message_id
 
             async def _resolve_message_id(initial_id: Optional[str]) -> Optional[str]:
-                candidate = initial_id or placeholder_message_id
+                candidate = initial_id
                 if not candidate:
                     return None
                 if not candidate.startswith("send_api_"):
@@ -224,7 +241,7 @@ class AutoRecallMixin:
                     return candidate
                 deadline = time.monotonic() + id_wait_seconds
                 while time.monotonic() < deadline:
-                    refreshed_id = await self._get_last_message_id()
+                    refreshed_id = await self._get_last_message_id(require_marker=True, hours=0.5, limit=80)
                     if refreshed_id and not refreshed_id.startswith("send_api_"):
                         logger.debug(f"{self.log_prefix} 占位ID替换为正式ID: {refreshed_id}")
                         return refreshed_id
@@ -257,8 +274,13 @@ class AutoRecallMixin:
         """由子类实现，用于判断当前会话是否启用了自动撤回"""
         raise NotImplementedError
 
-    async def _get_last_message_id(self) -> Optional[str]:
-        """获取最后发送的消息ID"""
+    async def _get_last_message_id(
+        self,
+        hours: float = 24.0,
+        limit: int = 120,
+        require_marker: bool = False,
+    ) -> Optional[str]:
+        """获取最后发送的消息ID（可选：仅限本插件图片）"""
         try:
             logger.info(f"{self.log_prefix} 开始获取消息ID")
 
@@ -282,16 +304,20 @@ class AutoRecallMixin:
             for attempt in range(max_attempts):
                 msgs = message_api.get_recent_messages(
                     chat_id=str(stream_id),
-                    hours=0.05,
-                    limit=20,
+                    hours=hours,
+                    limit=limit,
                     limit_mode="latest",
                     filter_mai=False
                 ) or []
                 logger.debug(f"{self.log_prefix} 尝试{attempt + 1}/{max_attempts}，获取到 {len(msgs)} 条消息")
 
                 for msg in reversed(msgs):
-                    if not _is_image_message(msg):
-                        continue
+                    if require_marker:
+                        if not _is_nai_pic_plugin_image_message(msg):
+                            continue
+                    else:
+                        if not _is_image_message(msg):
+                            continue
 
                     message_id = _extract_message_field(msg, "message_id")
                     if not message_id:
@@ -309,7 +335,8 @@ class AutoRecallMixin:
                         if msg_time_val + timestamp_tolerance < send_timestamp:
                             continue
 
-                    if bot_account:
+                    # 若要求标记，则 display_message 已经能保证来源是本插件，不再额外依赖 bot_account。
+                    if (not require_marker) and bot_account:
                         # 无法识别发送者时，宁可不撤回也不要误撤回
                         if not msg_user_id:
                             continue

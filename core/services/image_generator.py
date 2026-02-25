@@ -16,6 +16,7 @@ from typing import Tuple, Optional, Any, Callable, Awaitable
 from src.common.logger import get_logger
 
 from ..rules.selfie_rules import merge_selfie_prompt
+from ..constants import NAI_PIC_IMAGE_DISPLAY_MARKER
 
 logger = get_logger("nai_pic_plugin")
 
@@ -163,21 +164,49 @@ class ImageGenerationService:
         try:
             # URL 格式
             if image_data.startswith(("http://", "https://")):
-                return await self.component.send_custom("imageurl", image_data)
+                try:
+                    return await self.component.send_custom(
+                        "imageurl",
+                        image_data,
+                        display_message=NAI_PIC_IMAGE_DISPLAY_MARKER,
+                    )
+                except TypeError:
+                    return await self.component.send_custom("imageurl", image_data)
 
             # Base64 格式
             if image_data.startswith(("iVBORw", "/9j/", "UklGR", "R0lGOD")):
                 # 尝试保存为文件再发送
                 image_path = self._save_base64_to_file(image_data)
                 if image_path:
-                    return await self.component.send_custom("imageurl", f"file://{image_path}")
+                    try:
+                        return await self.component.send_custom(
+                            "imageurl",
+                            f"file://{image_path}",
+                            display_message=NAI_PIC_IMAGE_DISPLAY_MARKER,
+                        )
+                    except TypeError:
+                        return await self.component.send_custom("imageurl", f"file://{image_path}")
                 else:
                     # 回退为直接发送 Base64
                     logger.warning(f"{self.log_prefix} 图片保存失败，回退为Base64发送")
-                    return await self.component.send_image(image_data)
+                    try:
+                        return await self.component.send_custom(
+                            "image",
+                            image_data,
+                            display_message=NAI_PIC_IMAGE_DISPLAY_MARKER,
+                        )
+                    except TypeError:
+                        return await self.component.send_image(image_data)
 
             # 其他格式尝试直接发送
-            return await self.component.send_image(image_data)
+            try:
+                return await self.component.send_custom(
+                    "image",
+                    image_data,
+                    display_message=NAI_PIC_IMAGE_DISPLAY_MARKER,
+                )
+            except TypeError:
+                return await self.component.send_image(image_data)
 
         except Exception as e:
             logger.error(f"{self.log_prefix} 图片发送失败: {e!r}")
