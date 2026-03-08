@@ -260,11 +260,14 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
         template: str,
         original_request: str,
     ) -> str:
-        """渲染提示词生成模板"""
+        """渲染提示词生成模板（/nai 命令不使用提示词继承）"""
         # 永远注入自拍提示，由 LLM 自行判断是否为自拍意图
         selfie_hint = get_selfie_hint()
 
-        prompt = template.replace("<<SELFIE_HINT>>", selfie_hint).strip()
+        # /nai 命令不需要提示词继承和自定义系统提示词，清除这些占位符
+        prompt = template.replace("<<CUSTOM_SYSTEM_PROMPT>>", "").strip()
+        prompt = prompt.replace("<<PREVIOUS_PROMPT>>", "").strip()
+        prompt = prompt.replace("<<SELFIE_HINT>>", selfie_hint).strip()
         prompt = prompt.replace("<<USER_REQUEST>>", original_request.strip() or "N/A")
         return prompt
 
