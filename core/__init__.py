@@ -24,7 +24,6 @@ from .commands.nai_admin_command import NaiAdminControlCommand
 from .commands.nai_recall_command import NaiRecallControlCommand
 from .commands.nai_nsfw_command import NaiNsfwControlCommand
 from .commands.nai_prompt_show_command import NaiPromptShowCommand
-from .commands.nai_artist_command import NaiArtistCommand
 
 # 动作层
 from .actions.nai_pic_action import NaiPicAction
@@ -53,7 +52,6 @@ __all__ = [
     "NaiRecallControlCommand",
     "NaiNsfwControlCommand",
     "NaiPromptShowCommand",
-    "NaiArtistCommand",
     # 动作
     "NaiPicAction",
     # 混入

@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
+import re
 import traceback
 import time
-from typing import Tuple, Optional, Dict, Any
+from datetime import datetime
+from typing import Tuple, Optional, Dict, Any, List
 
 from src.plugin_system.base.base_action import BaseAction
 from src.plugin_system.base.component_types import ActionActivationType, ChatMode
@@ -17,6 +19,7 @@ from ..mixins.model_config_mixin import ModelConfigMixin
 from ..rules.prompt_rules import PROMPT_GENERATOR_TEMPLATE, SFW_PROMPT_GENERATOR_TEMPLATE
 from ..rules.selfie_rules import (
     detect_selfie_from_output,
+    detect_selfie_mode,
     get_selfie_hint,
     merge_selfie_prompt,
 )
@@ -59,21 +62,34 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
             "用户直接描述了画面时，保留原始描述（如'初音未来，制服，白丝'）；"
             "用户请求依赖上下文时（如'自拍'、'拍一张'、'再来一张'），"
             "结合对话上下文给出完整描述（如你刚说在洗澡，用户说'自拍'→'在浴室洗澡时的自拍'）；"
+            "如果是延续上一张图的请求（如'再来一张'、'换个姿势'、'还是白丝但坐着拍'），"
+            "description应建立在上一轮图像主题基础上，写成'保留上一轮主体/设定 + 本轮变化'，而不是完全从零改写；"
+            "如果用户只指定局部变化（如'换成白丝'、'改成胖次特写'、'表情害羞一点'），"
+            "则上一轮未被明确修改的核心设定默认保留，尤其是主体、场景、时间/光线、构图、风格、氛围以及整套穿搭，不要把这些默认继承项漏掉；"
+            "整套穿搭继承时，要明确保留主衣物、下装、袜类、鞋类和主要配饰；用户只改其中一项时，其余同类默认延续，不要因为提到'换成白色睡衣'就把黑丝、鞋子或配饰一并删掉；"
+            "像'再来一张'、'继续'、'另一张'这类续图，如果用户没有明确说换场景、换衣服、换袜子、换鞋子，就默认沿用上一轮的主体、场景和整套穿搭，只变化姿势、表情、镜头、角度或局部动作；"
+            "如果用户只给宽泛服装类别（如睡衣、裙子、外套、毛衣、鞋子、袜子、制服、家居服），description里要先收敛成一个单一、明确、可画的具体款式，不要只写大类名，也不要把同一件衣服写成多个互斥分支；"
+            "当用户只要求改颜色、材质、长度、厚度、露肤程度等局部属性时，默认是在上一轮同一件单品上微调，而不是换成另一种完全不同的款式；"
             "当用户想看你的样子（如'看看黑丝'、'穿JK给我看'），"
-            "必须体现是你本人出镜（如'看看你穿黑丝的样子'、'你穿JK的自拍'）"
+            "必须体现是你本人出镜（如'看看你穿黑丝的样子'、'你穿JK的自拍'）；"
+            "用户明确指定的关键要素必须保留，如服装（白丝/黑丝/JK）、部位（腿/脚/上半身）、视角（自拍/俯视/镜前）、氛围（居家/慵懒/浴室）、时间（白天/夜晚）等，不要擅自泛化成普通自拍或普通插画；"
+            "description只写最终要画出来的内容，不要写插件名、动作名、系统说明、占位符或解释性语句"
         ),
         "size": "图片尺寸（默认从配置获取）",
     }
 
     # 动作使用场景（触发条件）
     action_require = [
-        "满足以下任一条件时触发：",
-        "1. 用户要求画图、生成图片、创作图像",
-        "2. 用户要求自拍、拍照、发照片、或想看你（如'自拍一张'、'发张照片'、'看看你'、'拍给我看'）",
-        "3. 用户在延续绘图话题（如'再来一张'、'换个姿势'、'重新画'）",
-        "4. 当前情景适合主动发图展示状态（如聊到穿搭、展示当前在做的事、调情互动等场景）",
-        "不触发的情况：无关的知识问答、技术讨论、只是提到'图片'但不是要求生成",
+        "仅在以下情况触发：",
+        "1. 用户明确要求画图、生成图片、创作图像",
+        "2. 用户明确要求自拍、拍照、发照片，或明确想看你本人出镜的样子（如'自拍一张'、'发张照片'、'看看你'、'拍给我看'）",
+        "3. 用户正在延续同一发图话题（如'再来一张'、'换个姿势'、'重新画'、'继续'），且语义上明显是在上一张图的主题上继续变化",
+        "4. 当前对话已经明显进入展示型/看图型互动，对方虽然没直说'发图'，但表达的是明确的视觉索求，且结合上文可以自然理解为想继续看图",
+        "不要在普通聊天、知识问答、技术讨论中触发生图",
+        "不要仅因聊到穿搭、丝袜、自拍、暧昧互动就主动发图，除非对方明显是在索要视觉展示；模糊的夸赞、调情、闲聊不算发图请求",
+        "如果文字回复已足够完成互动，不要额外触发生图",
         "非用户主动要求重画时，不要重复生成相同内容",
+        "如果无法从当前语境明确判断对方是在要图，优先先文字回复，不要为了活跃气氛擅自触发生图",
     ]
     associated_types = ["text"]
 
@@ -109,6 +125,14 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
             await self.send_text("提示词生成器开小差了，请直接告诉我想画什么，或者稍后再试一次~")
             return False, "图片描述为空"
 
+        previous_selfie_anchor: Dict[str, List[str]] = {}
+        if self.chat_id:
+            inherit_ttl = float(self.get_config("prompt_generator.inherit_ttl", 0) or 0)
+            _, _, _, previous_selfie_anchor = session_state.get_last_selfie_context(
+                self.chat_id,
+                ttl=inherit_ttl,
+            )
+
         # 从 LLM 输出检测是否为自拍（LLM 自行判定后会在输出中包含 selfie 标签）
         is_selfie = detect_selfie_from_output(description)
 
@@ -122,7 +146,25 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
                 include_selfie_prompt_add=True,
                 log_changes=True,
             )
+            description = self._inherit_selfie_clothing_from_anchor(
+                description,
+                raw_description,
+                previous_selfie_anchor,
+            )
             logger.debug(f"{self.log_prefix} [LLM触发] 自拍模式已启用")
+            anchor_data = self._extract_selfie_anchor_data(description)
+            scene_summary = self._format_selfie_anchor_summary(anchor_data)
+            if self.chat_id:
+                session_state.set_last_selfie_context(
+                    self.chat_id,
+                    description,
+                    raw_description,
+                    scene_summary,
+                    anchor_data,
+                )
+                session_state.set_last_nai_context(self.chat_id, description, raw_description)
+
+        description = self._enforce_explicit_request_tags(description, raw_description)
 
         # 轻量排序（可配置关闭）
         if self.get_config("prompt_generator.enforce_tag_order", False):
@@ -243,7 +285,7 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
                 await self.send_text("图片生成API返回了无法处理的数据格式")
                 return False, "API返回数据格式错误"
         else:
-            await self.send_text(f"哎呀，生成图片时遇到问题：{result}")
+            await self.send_text(f"哎呀，生成图片时遇到问题：{result[:150]}")
             return False, f"生成失败: {result}"
 
     def _process_api_response(self, result: str) -> Optional[str]:
@@ -297,6 +339,131 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
 
         return description
 
+    def _inherit_selfie_clothing_from_anchor(
+        self,
+        description: str,
+        raw_request: str,
+        previous_anchor: Optional[Dict[str, List[str]]] = None,
+    ) -> str:
+        """在自拍续图时，将上一轮稳定的穿搭锚点程序化回写到本轮提示词。"""
+        anchor_data = dict(previous_anchor or {})
+        if not anchor_data:
+            return description
+
+        change_profile = self._analyze_selfie_change_request(raw_request)
+        inherit_keys: List[str] = []
+
+        if change_profile.get("change_main_outfit_only"):
+            inherit_keys.extend(["legwear", "footwear"])
+        elif change_profile.get("change_legwear_only"):
+            inherit_keys.extend(["outfit", "footwear"])
+        elif change_profile.get("change_footwear_only"):
+            inherit_keys.extend(["outfit", "legwear"])
+        elif (
+            change_profile.get("implicit_keep_followup")
+            or change_profile.get("explicit_keep")
+            or change_profile.get("soft_variation")
+            or (not change_profile.get("change_outfit") and not change_profile.get("change_scene"))
+        ):
+            inherit_keys.extend(["outfit", "legwear", "footwear"])
+
+        if not inherit_keys:
+            return description
+
+        label_to_tags = {
+            "outfit": {
+                "制服": ["school uniform"],
+                "水手服": ["serafuku"],
+                "JK外套": ["blazer"],
+                "百褶裙": ["pleated skirt"],
+                "连衣裙": ["dress"],
+                "卫衣": ["hoodie"],
+                "毛衣": ["sweater"],
+                "开衫": ["cardigan"],
+                "外套": ["coat"],
+                "夹克": ["jacket"],
+                "睡衣": ["pajamas"],
+                "睡裙": ["nightgown"],
+                "内衣风": ["lingerie"],
+                "比基尼": ["bikini"],
+                "泳装": ["swimsuit"],
+                "衬衫": ["shirt"],
+                "裙装": ["skirt"],
+            },
+            "legwear": {
+                "黑丝": ["black pantyhose"],
+                "白丝": ["white pantyhose"],
+                "连裤袜": ["pantyhose"],
+                "黑色过膝袜": ["black thighhighs"],
+                "白色过膝袜": ["white thighhighs"],
+                "过膝袜": ["thighhighs"],
+                "袜子": ["socks"],
+                "短袜": ["ankle socks"],
+                "及膝袜": ["knee socks"],
+                "丝袜": ["stockings"],
+                "吊袜带": ["garter straps"],
+            },
+            "footwear": {
+                "高跟鞋": ["high heels"],
+                "乐福鞋": ["loafers"],
+                "运动鞋": ["sneakers"],
+                "靴子": ["boots"],
+                "短靴": ["ankle boots"],
+                "凉鞋": ["sandals"],
+                "拖鞋": ["slippers"],
+                "玛丽珍鞋": ["mary janes"],
+                "赤脚": ["barefoot"],
+                "没穿鞋": ["no shoes"],
+                "脱鞋": ["shoes removed"],
+            },
+        }
+        category_markers = {
+            "outfit": [
+                "school uniform", "serafuku", "blazer", "pleated skirt", "dress", "hoodie",
+                "sweater", "cardigan", "coat", "jacket", "pajamas", "nightgown",
+                "lingerie", "bikini", "swimsuit", "shirt", "skirt",
+            ],
+            "legwear": [
+                "black pantyhose", "white pantyhose", "pantyhose", "black thighhighs",
+                "white thighhighs", "thighhighs", "socks", "ankle socks", "knee socks",
+                "stockings", "garter straps", "garter belt",
+            ],
+            "footwear": [
+                "high heels", "heels", "pumps", "loafers", "sneakers", "boots",
+                "ankle boots", "sandals", "slippers", "mary janes", "barefoot",
+                "no shoes", "bare feet", "shoes removed",
+            ],
+        }
+
+        existing_tags = [tag.strip() for tag in description.replace("\n", ",").split(",") if tag.strip()]
+        normalized_existing = self._normalize_prompt_tags(description)
+        tags_to_add: List[str] = []
+
+        for key in inherit_keys:
+            if any(marker in tag for marker in category_markers.get(key, []) for tag in normalized_existing):
+                continue
+            for label in anchor_data.get(key, []):
+                for tag in label_to_tags.get(key, {}).get(label, []):
+                    if tag not in tags_to_add and tag not in existing_tags:
+                        tags_to_add.append(tag)
+
+        if not tags_to_add:
+            return description
+
+        if len(existing_tags) >= 2:
+            prefix = ", ".join(existing_tags[:2])
+            suffix = ", ".join(existing_tags[2:]) if len(existing_tags) > 2 else ""
+            merged = f"{prefix}, {', '.join(tags_to_add)}"
+            if suffix:
+                merged = f"{merged}, {suffix}"
+        else:
+            merged = ", ".join(tags_to_add + existing_tags)
+
+        logger.debug(
+            f"{self.log_prefix} [LLM触发] 自拍穿搭继承已生效：inherit_keys={inherit_keys}, added={tags_to_add}"
+        )
+        return merged.strip(", ")
+
     def _is_auto_recall_enabled(self, platform: str, chat_id: str) -> bool:
         """供自动撤回Mixin调用"""
         return session_state.is_recall_enabled(platform, chat_id, self.get_config)
@@ -344,6 +511,9 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
         last_prompt, last_request = session_state.get_last_nai_context(
             chat_stream_id, ttl=inherit_ttl
         )
+        last_selfie_prompt, last_selfie_request, last_selfie_scene, last_selfie_anchor = session_state.get_last_selfie_context(
+            chat_stream_id, ttl=inherit_ttl
+        )
         if not last_prompt and chat_stream_id:
             last_prompt, last_request = load_last_context_from_action_records(
                 chat_stream_id, self.action_name, ttl=inherit_ttl
@@ -352,6 +522,18 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
                 session_state.set_last_nai_context(
                     chat_stream_id, last_prompt, last_request or ""
                 )
+                if detect_selfie_from_output(last_prompt):
+                    last_selfie_anchor = self._extract_selfie_anchor_data(last_prompt)
+                    last_selfie_scene = self._format_selfie_anchor_summary(last_selfie_anchor)
+                    session_state.set_last_selfie_context(
+                        chat_stream_id,
+                        last_prompt,
+                        last_request or "",
+                        last_selfie_scene,
+                        last_selfie_anchor,
+                    )
+                    last_selfie_prompt = last_prompt
+                    last_selfie_request = last_request
 
         # 检查是否启用 NSFW 过滤，选择对应模板
         try:
@@ -378,7 +560,16 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
                 default_template = PROMPT_GENERATOR_TEMPLATE
 
         prompt_template = generator_config.get("prompt_template") or default_template
-        prompt = self._render_generator_prompt(prompt_template, raw_request, last_prompt, last_request)
+        prompt = self._render_generator_prompt(
+            prompt_template,
+            raw_request,
+            last_prompt,
+            last_request,
+            last_selfie_prompt=last_selfie_prompt,
+            last_selfie_request=last_selfie_request,
+            last_selfie_scene=last_selfie_scene,
+            last_selfie_anchor=last_selfie_anchor,
+        )
 
         model_config = self._resolve_llm_model_config(generator_config.get("model_name", ""))
         if not model_config:
@@ -441,6 +632,10 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
         original_request: str,
         last_prompt: Optional[str] = None,
         last_request: Optional[str] = None,
+        last_selfie_prompt: Optional[str] = None,
+        last_selfie_request: Optional[str] = None,
+        last_selfie_scene: Optional[str] = None,
+        last_selfie_anchor: Optional[Dict[str, List[str]]] = None,
     ) -> str:
         """将占位符替换为实际内容"""
         # 自定义系统提示词
@@ -450,15 +645,727 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
 
         # 永远注入自拍提示，由 LLM 自行判断是否为自拍意图
         selfie_hint = get_selfie_hint()
+        current_time_context = self._build_current_time_context()
+        selfie_scene_context = self._build_selfie_scene_context(
+            original_request,
+            last_selfie_prompt=last_selfie_prompt,
+            last_selfie_request=last_selfie_request,
+            last_selfie_scene=last_selfie_scene,
+            last_selfie_anchor=last_selfie_anchor,
+        )
 
         # 上一轮提示词 block
         previous_block = render_previous_prompt_block(last_prompt, last_request)
 
         prompt = template.replace("<<CUSTOM_SYSTEM_PROMPT>>", custom_system_prompt).strip()
         prompt = prompt.replace("<<PREVIOUS_PROMPT>>", previous_block).strip()
+        prompt = prompt.replace("<<CURRENT_TIME_CONTEXT>>", current_time_context).strip()
         prompt = prompt.replace("<<SELFIE_HINT>>", selfie_hint).strip()
         prompt = prompt.replace("<<USER_REQUEST>>", original_request.strip() or "N/A")
+        if "<<CURRENT_TIME_CONTEXT>>" in prompt:
+            prompt = prompt.replace("<<CURRENT_TIME_CONTEXT>>", current_time_context)
+        elif "</user_request>" in prompt:
+            prompt = prompt.replace("</user_request>", f"{current_time_context}\n</user_request>", 1)
+        else:
+            prompt = f"{prompt}\n\n{current_time_context}".strip()
+        if selfie_scene_context:
+            if "<<SELFIE_SCENE_CONTEXT>>" in prompt:
+                prompt = prompt.replace("<<SELFIE_SCENE_CONTEXT>>", selfie_scene_context)
+            elif "</user_request>" in prompt:
+                prompt = prompt.replace("</user_request>", f"{selfie_scene_context}\n</user_request>", 1)
+            else:
+                prompt = f"{prompt}\n\n{selfie_scene_context}".strip()
         return prompt
+
+    def _build_current_time_context(self) -> str:
+        """构建当前时间段提示，帮助 LLM 在未指定时补对光线与场景时间。"""
+        now = datetime.now()
+        hour = now.hour
+
+        if 5 <= hour < 8:
+            period = "清晨"
+            lighting_hint = "如果用户未明确指定时间或光线，优先考虑 dawn, early morning, sunrise, soft morning light。"
+        elif 8 <= hour < 11:
+            period = "上午"
+            lighting_hint = "如果用户未明确指定时间或光线，优先考虑 morning, daylight, bright natural light。"
+        elif 11 <= hour < 14:
+            period = "中午"
+            lighting_hint = "如果用户未明确指定时间或光线，优先考虑 noon, midday, bright sunlight。"
+        elif 14 <= hour < 17:
+            period = "下午"
+            lighting_hint = "如果用户未明确指定时间或光线，优先考虑 afternoon, warm daylight, sunlit。"
+        elif 17 <= hour < 19:
+            period = "傍晚"
+            lighting_hint = "如果用户未明确指定时间或光线，优先考虑 dusk, sunset, golden hour, evening glow。"
+        elif 19 <= hour < 23:
+            period = "夜晚"
+            lighting_hint = "如果用户未明确指定时间或光线，优先考虑 night, moonlight, night sky, city lights, warm indoor light。"
+        else:
+            period = "深夜"
+            lighting_hint = "如果用户未明确指定时间或光线，优先考虑 late night, midnight, moonlight, dim light, warm indoor light。"
+
+        return (
+            "<current_time_context>\n"
+            f"当前本地时间：{now.strftime('%Y-%m-%d %H:%M:%S')}（{period}）。\n"
+            "这条时间信息用于补全场景时间与光线，不是硬性主题。\n"
+            "如果用户明确指定了白天、夜晚、清晨、黄昏、室内灯光、天气或其他时间氛围，以用户要求为准，不要覆盖。\n"
+            f"{lighting_hint}\n"
+            "</current_time_context>"
+        )
+
+    def _build_selfie_scene_context(
+        self,
+        original_request: str,
+        last_selfie_prompt: Optional[str] = None,
+        last_selfie_request: Optional[str] = None,
+        last_selfie_scene: Optional[str] = None,
+        last_selfie_anchor: Optional[Dict[str, List[str]]] = None,
+    ) -> str:
+        """为 bot 自拍/展示照构建场景连续性提示。"""
+        request_text = (original_request or "").strip()
+        prompt_text = (last_selfie_prompt or "").strip()
+        scene_summary = (last_selfie_scene or "").strip()
+        anchor_data = dict(last_selfie_anchor or {})
+
+        if not anchor_data and prompt_text:
+            anchor_data = self._extract_selfie_anchor_data(prompt_text)
+        if not scene_summary and anchor_data:
+            scene_summary = self._format_selfie_anchor_summary(anchor_data)
+        elif not scene_summary and prompt_text:
+            scene_summary = self._extract_selfie_scene_summary(prompt_text)
+
+        likely_selfie = self._is_likely_selfie_request(request_text, prompt_text)
+        if not likely_selfie:
+            return ""
+
+        default_scene_hint = self._build_default_selfie_scene_hint()
+        prompt_reference = self._build_selfie_prompt_reference(prompt_text)
+        change_profile = self._analyze_selfie_change_request(request_text)
+        lines: List[str] = [
+            "<selfie_scene_context>",
+            "你正在处理 bot 本人自拍/展示照 的连续发图请求，目标是让图片像顺着聊天自然发出来的，而不是每次都重开新场景。",
+            "请先判断本次更适合 keep / adjust / switch 哪一种：",
+            "- keep：用户只是再来一张、换个姿势、换个角度、继续、还是这身、表情变化、构图变化，默认保留背景与服装锚点",
+            "- adjust：用户想来点不一样，但没明确换地点或换衣服时，优先调整姿势、镜头、光线、取景或轻微布景，不要优先把背景和衣服一起整套换掉",
+            "- switch：只有用户明确要求换背景、换地点、换场景、换衣服，或当前锚点与用户要求明显冲突时，才切换对应部分",
+        ]
+
+        if scene_summary:
+            lines.append("上一轮可延续的自拍锚点：")
+            lines.append(scene_summary)
+            if last_selfie_request:
+                lines.append(f"上一轮用户请求：{last_selfie_request.strip()}")
+            if prompt_reference:
+                lines.append("上一轮自拍提示词参考：")
+                lines.append(prompt_reference)
+            lines.append("如果用户这次没有明确改场景，默认延续上面的背景主锚点。")
+            lines.append("如果用户这次没有明确改服装，默认延续上面的穿搭主锚点。")
+            lines.append("如果用户只改衣服、袜子、鞋子、配饰等穿搭细节，保留场景背景。")
+            lines.append("如果用户只改主衣物、主衣物颜色或材质，默认保留上一轮的袜子、鞋子和其他未提到的配饰。")
+            lines.append("如果用户只改袜子或鞋子，默认保留上一轮的主衣物。")
+            lines.append("如果用户只说“再来一张”“继续”“另一张”之类，没有提到换衣服、换袜子、换鞋子，就把上一轮整套穿搭都当作强继承项，不要自行删掉黑丝、短袜、鞋子等已有穿搭。")
+            lines.append("如果用户只改地点、背景、光线、自拍方式，保留服装。")
+            lines.append("如果用户只说“来点不一样”，优先改变动作、构图、表情或光线，不要直接跳到完全不同的背景或整套换衣。")
+        else:
+            lines.append("当前没有可延续的自拍锚点。除非用户明确指定地点或穿搭，否则不要随机跳到景点、街拍、海边等大场景，也不要无理由突然换成完全不同的衣服主题。")
+            if prompt_reference:
+                lines.append("如果上一轮自拍提示词里已经包含清晰的场景、服装、自拍方式，可将其作为连续参考，而不是完全重开。")
+                lines.append("上一轮自拍提示词参考：")
+                lines.append(prompt_reference)
+
+        if anchor_data:
+            lines.append(self._build_selfie_anchor_directive(anchor_data, change_profile))
+        lines.append(f"默认自拍场景兜底：{default_scene_hint}")
+        lines.append("参考上一轮提示词时，优先继承其中稳定的场景、服装、视角和光线锚点；不要机械照抄，用户明确要求变化的部分必须改。")
+        lines.append("</selfie_scene_context>")
+        return "\n".join(lines)
+
+    def _build_default_selfie_scene_hint(self) -> str:
+        """给自拍第一张图一个稳定但不僵硬的默认场景。"""
+        hour = datetime.now().hour
+        if 6 <= hour < 18:
+            return "白天优先室内日常自拍场景，如卧室窗边、卧室镜前、居家角落，使用自然光；不要无理由直接跳到户外景点。"
+        return "夜晚优先室内日常自拍场景，如卧室、镜前、床边、居家角落，使用暖色室内灯光；不要无理由直接跳到白天户外。"
+
+    def _build_selfie_prompt_reference(self, prompt_text: str, max_tags: int = 48, max_chars: int = 700) -> str:
+        """从上一轮自拍提示词中裁出一段稳定参考，避免上下文过长。"""
+        text = (prompt_text or "").strip()
+        if not text:
+            return ""
+
+        raw_tags = [segment.strip() for segment in text.replace("\n", ",").split(",") if segment.strip()]
+        if not raw_tags:
+            return text[:max_chars].strip()
+
+        selected_tags: List[str] = []
+        current_length = 0
+        for tag in raw_tags:
+            next_length = current_length + len(tag) + (2 if selected_tags else 0)
+            if len(selected_tags) >= max_tags or next_length > max_chars:
+                break
+            selected_tags.append(tag)
+            current_length = next_length
+
+        excerpt = ", ".join(selected_tags).strip()
+        if not excerpt:
+            excerpt = text[:max_chars].strip()
+        if excerpt != text.strip():
+            excerpt = f"{excerpt}, ..."
+        return excerpt
+
+    def _build_selfie_anchor_directive(
+        self,
+        anchor_data: Dict[str, List[str]],
+        change_profile: Dict[str, bool],
+    ) -> str:
+        """根据结构化锚点和本轮请求，生成更精确的继承指令。"""
+        scene_labels = self._join_anchor_values(anchor_data, ["location", "scene_type"])
+        outfit_labels = self._join_anchor_values(anchor_data, ["outfit_color", "outfit", "legwear", "footwear"])
+        lighting_labels = self._join_anchor_values(anchor_data, ["lighting", "time_of_day"])
+        framing_labels = self._join_anchor_values(anchor_data, ["framing"])
+
+        lines: List[str] = ["结构化继承建议："]
+        if scene_labels:
+            lines.append(f"- 场景锚点：{scene_labels}")
+        if outfit_labels:
+            lines.append(f"- 服装锚点：{outfit_labels}")
+        if lighting_labels:
+            lines.append(f"- 光线/时间锚点：{lighting_labels}")
+        if framing_labels:
+            lines.append(f"- 构图锚点：{framing_labels}")
+
+        if change_profile.get("explicit_keep"):
+            lines.append("- 本轮用户明显要求保持原设定，优先强保留以上锚点，只调整轻微动作和表情。")
+        elif change_profile.get("implicit_keep_followup"):
+            lines.append("- 本轮更像“再来一张/继续”式续图请求；默认强保留主衣物、袜类、鞋子、场景与光线，只允许调整姿势、表情、镜头或轻微构图。")
+        elif change_profile.get("change_main_outfit_only"):
+            lines.append("- 本轮只改主衣物或主衣物颜色/材质；袜类、鞋子、配饰默认继承，场景、光线、构图也默认继承。")
+        elif change_profile.get("change_legwear_only"):
+            lines.append("- 本轮只改袜类/腿部穿搭；主衣物、鞋子、场景、光线默认继承。")
+        elif change_profile.get("change_footwear_only"):
+            lines.append("- 本轮只改鞋子/足部状态；主衣物、袜类、场景、光线默认继承。")
+        elif change_profile.get("change_outfit_only"):
+            lines.append("- 本轮只改穿搭字段；未明确提到的主衣物、袜类、鞋子、配饰尽量继承，场景、光线、构图默认继承。")
+        elif change_profile.get("change_scene_only"):
+            lines.append("- 本轮只改场景字段；服装默认继承，构图和光线尽量沿用。")
+        elif change_profile.get("soft_variation"):
+            lines.append("- 本轮更像轻微变化请求；优先改姿势、表情、镜头距离或局部光线，不要改大场景和整套衣服。")
+        elif change_profile.get("change_scene") and change_profile.get("change_outfit"):
+            lines.append("- 本轮同时涉及场景与穿搭变化；仅修改用户明确提到的字段，未提到的视角和光线尽量稳定。")
+        else:
+            lines.append("- 默认继承以上结构化锚点；只有用户明确指定变化时，才替换对应字段。")
+
+        return "\n".join(lines)
+
+    def _join_anchor_values(self, anchor_data: Dict[str, List[str]], keys: List[str]) -> str:
+        """按字段拼接结构化锚点值。"""
+        labels: List[str] = []
+        for key in keys:
+            for value in anchor_data.get(key, []):
+                if value not in labels:
+                    labels.append(value)
+        return "、".join(labels)
+
+    def _analyze_selfie_change_request(self, request_text: str) -> Dict[str, bool]:
+        """分析本轮自拍请求更像保留、轻改还是切换哪些锚点。"""
+        text = (request_text or "").strip().lower()
+        if not text:
+            return {
+                "change_scene": False,
+                "change_outfit": False,
+                "change_scene_only": False,
+                "change_outfit_only": False,
+                "soft_variation": False,
+                "explicit_keep": False,
+                "change_main_outfit": False,
+                "change_legwear": False,
+                "change_footwear": False,
+                "change_accessory": False,
+                "change_main_outfit_only": False,
+                "change_legwear_only": False,
+                "change_footwear_only": False,
+                "implicit_keep_followup": False,
+            }
+
+        scene_keywords = [
+            "背景", "场景", "地点", "地方", "镜前", "卧室", "浴室", "客厅", "窗边",
+            "床边", "床上", "沙发", "书桌", "阳台", "户外", "街景", "夜景", "公园",
+            "咖啡店", "海边", "教室", "办公室", "灯光", "光线", "自拍", "角度", "构图",
+        ]
+        main_outfit_keywords = [
+            "制服", "jk", "水手服", "百褶裙", "裙", "连衣裙", "毛衣", "开衫", "外套",
+            "夹克", "睡衣", "睡裙", "泳装", "比基尼", "内衣", "衣服", "上衣", "衬衫",
+            "裤子", "短裤", "长裤", "牛仔裤", "家居服",
+        ]
+        legwear_keywords = [
+            "黑丝", "白丝", "裤袜", "连裤袜", "过膝袜", "丝袜", "袜子",
+        ]
+        footwear_keywords = [
+            "鞋子", "高跟", "高跟鞋", "运动鞋", "小皮鞋", "乐福鞋", "靴子", "凉鞋", "拖鞋", "赤脚", "光脚", "没穿鞋", "不穿鞋",
+        ]
+        accessory_keywords = [
+            "配饰", "发夹", "头饰", "项链", "耳环", "手链", "choker", "蝴蝶结",
+        ]
+        generic_outfit_keywords = [
+            "穿搭", "这身", "这套",
+        ]
+        color_keywords = [
+            "黑色", "白色", "灰色", "棕色", "米色", "奶白", "藏青", "蓝色", "粉色", "红色", "绿色",
+        ]
+        change_keywords = ["换", "改", "变", "切", "换成", "改成", "换到", "切到"]
+        keep_keywords = ["还是", "保留", "保持", "别换", "不要换", "同一个", "同样", "这身", "这套", "原来"]
+        soft_variation_keywords = [
+            "来点不一样", "换个姿势", "换个角度", "换个表情", "换个动作", "表情", "动作",
+            "姿势", "角度", "构图", "镜头", "近一点", "远一点", "侧一点", "自然一点",
+        ]
+        followup_keep_keywords = [
+            "再来一张", "再来个", "继续", "再拍一张", "再发一张", "另一张", "来一张",
+            "还是这身", "还是这套", "同一套", "同样穿搭",
+        ]
+
+        mentions_scene = any(keyword in text for keyword in scene_keywords)
+        mentions_main_outfit = any(keyword in text for keyword in main_outfit_keywords)
+        mentions_legwear = any(keyword in text for keyword in legwear_keywords)
+        mentions_footwear = any(keyword in text for keyword in footwear_keywords)
+        mentions_accessory = any(keyword in text for keyword in accessory_keywords)
+        mentions_generic_outfit = any(keyword in text for keyword in generic_outfit_keywords)
+        mentions_color = any(keyword in text for keyword in color_keywords)
+        mentions_outfit = any([
+            mentions_main_outfit,
+            mentions_legwear,
+            mentions_footwear,
+            mentions_accessory,
+            mentions_generic_outfit,
+        ])
+        wants_change = any(keyword in text for keyword in change_keywords)
+        explicit_keep = any(keyword in text for keyword in keep_keywords)
+        soft_variation = any(keyword in text for keyword in soft_variation_keywords)
+        implicit_keep_followup = any(keyword in text for keyword in followup_keep_keywords)
+
+        change_scene = mentions_scene and (wants_change or "去" in text or "到" in text)
+        change_outfit = mentions_outfit and (wants_change or "穿" in text or "这身" in text or "这套" in text)
+        change_main_outfit = (mentions_main_outfit or (mentions_generic_outfit and mentions_color)) and change_outfit
+        change_legwear = mentions_legwear and change_outfit
+        change_footwear = mentions_footwear and change_outfit
+        change_accessory = mentions_accessory and change_outfit
+
+        return {
+            "change_scene": change_scene,
+            "change_outfit": change_outfit,
+            "change_scene_only": change_scene and not change_outfit,
+            "change_outfit_only": change_outfit and not change_scene,
+            "soft_variation": soft_variation and not change_scene and not change_outfit,
+            "explicit_keep": explicit_keep and not change_scene and not change_outfit,
+            "change_main_outfit": change_main_outfit,
+            "change_legwear": change_legwear,
+            "change_footwear": change_footwear,
+            "change_accessory": change_accessory,
+            "change_main_outfit_only": change_main_outfit and not change_legwear and not change_footwear and not change_accessory,
+            "change_legwear_only": change_legwear and not change_main_outfit and not change_footwear and not change_accessory,
+            "change_footwear_only": change_footwear and not change_main_outfit and not change_legwear and not change_accessory,
+            "implicit_keep_followup": implicit_keep_followup and not change_scene and not change_outfit,
+        }
+
+    def _is_likely_selfie_request(self, request_text: str, last_selfie_prompt: str = "") -> bool:
+        """粗略判断当前请求是否属于 bot 自拍/展示照，用于注入连续性提示。"""
+        text = (request_text or "").strip()
+        if not text:
+            return False
+        if detect_selfie_mode(text):
+            return True
+
+        direct_phrases = [
+            "看看你", "看你", "发张照片", "发张图", "拍给我看", "给我看", "来张照片", "来张图",
+            "你穿", "你的腿", "你的脚", "你的照片", "你今天穿了什么", "看看黑丝", "看看白丝",
+        ]
+        if any(phrase in text for phrase in direct_phrases):
+            return True
+
+        if last_selfie_prompt and detect_selfie_from_output(last_selfie_prompt):
+            continuation_patterns = [
+                r"再来一张", r"再来个", r"继续", r"换个姿势", r"换个角度", r"来点不一样",
+                r"还是.*", r"再拍", r"另一张", r"来一张", r"再发一张",
+                r"换成.+", r"改成.+", r"换套.+", r"换身.+", r"换衣服", r"换穿搭",
+                r"换背景", r"换场景", r"换地方", r"换到.+", r"改背景", r"改场景",
+                r"同一个场景", r"同样背景", r"这个背景", r"这身", r"这套", r"同一套",
+            ]
+            if any(re.search(pattern, text) for pattern in continuation_patterns):
+                return True
+
+            outfit_keywords = [
+                "黑丝", "白丝", "裤袜", "连裤袜", "过膝袜", "丝袜", "袜子", "鞋子", "高跟",
+                "高跟鞋", "运动鞋", "小皮鞋", "乐福鞋", "靴子", "凉鞋", "拖鞋", "赤脚", "光脚", "没穿鞋", "不穿鞋",
+                "制服", "jk", "水手服", "百褶裙", "裙", "连衣裙", "毛衣", "开衫", "外套",
+                "夹克", "睡衣", "睡裙", "泳装", "比基尼", "内衣", "配饰",
+                "黑色", "白色", "灰色", "棕色", "米色", "奶白", "藏青", "蓝色", "粉色", "红色", "绿色",
+            ]
+            scene_keywords = [
+                "背景", "场景", "地点", "地方", "镜前", "卧室", "浴室", "客厅", "窗边",
+                "床边", "床上", "沙发", "书桌", "阳台", "户外", "街景", "夜景", "公园",
+                "咖啡店", "灯光", "光线", "自拍", "角度", "构图",
+            ]
+            intent_keywords = [
+                "换", "改", "变", "保留", "继续", "还是", "同一个", "同样", "这身", "这套",
+                "不要换", "别换", "保持",
+            ]
+
+            mentions_anchor = any(keyword in text for keyword in outfit_keywords + scene_keywords)
+            has_followup_intent = any(keyword in text for keyword in intent_keywords)
+            if mentions_anchor and has_followup_intent:
+                return True
+
+        return False
+
+    def _extract_selfie_scene_summary(self, prompt: str) -> str:
+        """从自拍提示词中提取可延续的场景锚点摘要。"""
+        anchor_data = self._extract_selfie_anchor_data(prompt)
+        return self._format_selfie_anchor_summary(anchor_data)
+
+    def _extract_selfie_anchor_data(self, prompt: str) -> Dict[str, List[str]]:
+        """从自拍提示词中提取结构化锚点。"""
+        if not prompt or not detect_selfie_from_output(prompt):
+            return {}
+
+        normalized_tags = self._normalize_prompt_tags(prompt)
+
+        def pick_labels(label_map: List[Tuple[str, str]], limit: int = 3) -> List[str]:
+            selected: List[str] = []
+            for keyword, label in label_map:
+                if any(keyword in tag for tag in normalized_tags):
+                    if label not in selected:
+                        selected.append(label)
+                if len(selected) >= limit:
+                    break
+            return selected
+
+        anchor_data: Dict[str, List[str]] = {}
+
+        scene_type = pick_labels([
+            ("mirror selfie", "镜子自拍"),
+            ("group selfie", "合照自拍"),
+            ("from above", "高角度自拍"),
+            ("from below", "低角度自拍"),
+            ("selfie", "前置自拍"),
+        ], limit=1)
+        location = pick_labels([
+            ("bedroom", "卧室"),
+            ("bathroom", "浴室"),
+            ("dressing room", "更衣镜前"),
+            ("living room", "客厅"),
+            ("window", "窗边"),
+            ("balcony", "阳台"),
+            ("bed", "床边"),
+            ("couch", "沙发边"),
+            ("desk", "书桌边"),
+            ("outdoors", "户外"),
+            ("street", "街景"),
+            ("city", "城市夜景"),
+            ("cafe", "咖啡店"),
+            ("park", "公园"),
+            ("mirror", "镜前"),
+        ])
+        outfit = pick_labels([
+            ("school uniform", "制服"),
+            ("serafuku", "水手服"),
+            ("blazer", "JK外套"),
+            ("pleated skirt", "百褶裙"),
+            ("dress", "连衣裙"),
+            ("hoodie", "卫衣"),
+            ("sweater", "毛衣"),
+            ("cardigan", "开衫"),
+            ("coat", "外套"),
+            ("jacket", "夹克"),
+            ("pajamas", "睡衣"),
+            ("nightgown", "睡裙"),
+            ("lingerie", "内衣风"),
+            ("bikini", "比基尼"),
+            ("swimsuit", "泳装"),
+            ("shirt", "衬衫"),
+            ("skirt", "裙装"),
+        ])
+        legwear = pick_labels([
+            ("black pantyhose", "黑丝"),
+            ("white pantyhose", "白丝"),
+            ("pantyhose", "连裤袜"),
+            ("black thighhighs", "黑色过膝袜"),
+            ("white thighhighs", "白色过膝袜"),
+            ("thighhighs", "过膝袜"),
+            ("socks", "袜子"),
+            ("ankle socks", "短袜"),
+            ("knee socks", "及膝袜"),
+            ("stockings", "丝袜"),
+            ("garter straps", "吊袜带"),
+            ("garter belt", "吊袜带"),
+        ])
+        footwear = pick_labels([
+            ("high heels", "高跟鞋"),
+            ("heels", "高跟鞋"),
+            ("pumps", "高跟鞋"),
+            ("loafers", "乐福鞋"),
+            ("sneakers", "运动鞋"),
+            ("boots", "靴子"),
+            ("ankle boots", "短靴"),
+            ("sandals", "凉鞋"),
+            ("slippers", "拖鞋"),
+            ("mary janes", "玛丽珍鞋"),
+            ("barefoot", "赤脚"),
+            ("no shoes", "没穿鞋"),
+            ("bare feet", "赤脚"),
+            ("shoes removed", "脱鞋"),
+        ])
+        outfit_color = pick_labels([
+            ("black skirt", "黑色"),
+            ("black dress", "黑色"),
+            ("black cardigan", "黑色"),
+            ("black sweater", "黑色"),
+            ("black hoodie", "黑色"),
+            ("black coat", "黑色"),
+            ("black jacket", "黑色"),
+            ("black shirt", "黑色"),
+            ("black pajamas", "黑色"),
+            ("black nightgown", "黑色"),
+            ("white skirt", "白色"),
+            ("white dress", "白色"),
+            ("white cardigan", "白色"),
+            ("white sweater", "白色"),
+            ("white hoodie", "白色"),
+            ("white shirt", "白色"),
+            ("white pajamas", "白色"),
+            ("white nightgown", "白色"),
+            ("gray pajamas", "灰色"),
+            ("gray nightgown", "灰色"),
+            ("gray skirt", "灰色"),
+            ("gray dress", "灰色"),
+            ("gray cardigan", "灰色"),
+            ("gray sweater", "灰色"),
+            ("grey pajamas", "灰色"),
+            ("grey nightgown", "灰色"),
+            ("grey skirt", "灰色"),
+            ("grey dress", "灰色"),
+            ("grey cardigan", "灰色"),
+            ("grey sweater", "灰色"),
+            ("brown pajamas", "棕色"),
+            ("brown nightgown", "棕色"),
+            ("brown skirt", "棕色"),
+            ("brown dress", "棕色"),
+            ("brown cardigan", "棕色"),
+            ("brown sweater", "棕色"),
+            ("beige pajamas", "米色"),
+            ("beige nightgown", "米色"),
+            ("beige skirt", "米色"),
+            ("beige dress", "米色"),
+            ("beige cardigan", "米色"),
+            ("beige sweater", "米色"),
+            ("cream pajamas", "奶白色"),
+            ("cream nightgown", "奶白色"),
+            ("cream skirt", "奶白色"),
+            ("cream dress", "奶白色"),
+            ("cream cardigan", "奶白色"),
+            ("navy pajamas", "藏青色"),
+            ("navy nightgown", "藏青色"),
+            ("navy skirt", "藏青色"),
+            ("navy dress", "藏青色"),
+            ("navy blazer", "藏青色"),
+            ("blue pajamas", "蓝色"),
+            ("blue nightgown", "蓝色"),
+            ("blue skirt", "蓝色"),
+            ("blue dress", "蓝色"),
+            ("blue cardigan", "蓝色"),
+            ("blue sweater", "蓝色"),
+            ("pink pajamas", "粉色"),
+            ("pink nightgown", "粉色"),
+            ("pink skirt", "粉色"),
+            ("pink dress", "粉色"),
+            ("pink cardigan", "粉色"),
+            ("pink sweater", "粉色"),
+            ("red pajamas", "红色"),
+            ("red nightgown", "红色"),
+            ("red skirt", "红色"),
+            ("red dress", "红色"),
+            ("red cardigan", "红色"),
+            ("green pajamas", "绿色"),
+            ("green nightgown", "绿色"),
+            ("green skirt", "绿色"),
+            ("green dress", "绿色"),
+            ("green cardigan", "绿色"),
+        ])
+        lighting = pick_labels([
+            ("warm indoor light", "暖色室内灯光"),
+            ("natural light", "自然光"),
+            ("daylight", "白天自然光"),
+            ("sunlight", "阳光"),
+            ("golden hour", "黄昏金光"),
+            ("sunset", "傍晚余晖"),
+            ("moonlight", "月光"),
+            ("night", "夜晚光线"),
+            ("city lights", "城市灯光"),
+            ("dim light", "昏暗光线"),
+            ("soft morning light", "清晨柔光"),
+        ])
+        time_of_day = pick_labels([
+            ("sunrise", "清晨"),
+            ("morning", "上午"),
+            ("noon", "中午"),
+            ("midday", "中午"),
+            ("afternoon", "下午"),
+            ("golden hour", "傍晚"),
+            ("sunset", "傍晚"),
+            ("evening", "夜晚"),
+            ("night", "夜晚"),
+            ("late night", "深夜"),
+            ("midnight", "深夜"),
+        ], limit=1)
+        framing = pick_labels([
+            ("full body", "全身构图"),
+            ("cowboy shot", "大腿以上构图"),
+            ("upper body", "上半身构图"),
+            ("close-up", "近景"),
+            ("portrait", "肖像近景"),
+            ("wide angle", "广角取景"),
+            ("pov", "第一人称视角"),
+        ])
+
+        if scene_type:
+            anchor_data["scene_type"] = scene_type
+        if location:
+            anchor_data["location"] = location
+        if outfit:
+            anchor_data["outfit"] = outfit
+        if legwear:
+            anchor_data["legwear"] = legwear
+        if footwear:
+            anchor_data["footwear"] = footwear
+        if outfit_color:
+            anchor_data["outfit_color"] = outfit_color
+        if lighting:
+            anchor_data["lighting"] = lighting
+        if time_of_day:
+            anchor_data["time_of_day"] = time_of_day
+        if framing:
+            anchor_data["framing"] = framing
+
+        return anchor_data
+
+    def _format_selfie_anchor_summary(self, anchor_data: Dict[str, List[str]]) -> str:
+        """将结构化自拍锚点格式化为摘要文本。"""
+        if not anchor_data:
+            return ""
+
+        lines: List[str] = []
+        label_map = [
+            ("scene_type", "自拍类型"),
+            ("location", "场景/背景"),
+            ("outfit_color", "服装颜色"),
+            ("outfit", "服装/穿搭"),
+            ("legwear", "袜类/腿部穿搭"),
+            ("footwear", "鞋子/足部状态"),
+            ("lighting", "光线"),
+            ("time_of_day", "时间氛围"),
+            ("framing", "构图"),
+        ]
+        for key, label in label_map:
+            values = anchor_data.get(key, [])
+            if values:
+                lines.append(f"- {label}：{'、'.join(values)}")
+        return "\n".join(lines)
+
+    def _normalize_prompt_tags(self, prompt: str) -> List[str]:
+        """将提示词切分并清洗为可分析的标准标签列表。"""
+        raw_tags = [segment.strip() for segment in prompt.replace("\n", ",").split(",") if segment.strip()]
+        normalized_tags: List[str] = []
+        for tag in raw_tags:
+            cleaned = re.sub(r"^-?\d+(?:\.\d+)?::", "", tag.strip())
+            cleaned = cleaned.replace("::", "")
+            cleaned = cleaned.strip("{}[]() ")
+            if cleaned:
+                normalized_tags.append(cleaned.lower())
+        return normalized_tags
+
+    def _normalize_single_prompt_tag(self, tag: str) -> str:
+        """将单个提示词清洗为可比较的标准形式。"""
+        cleaned = re.sub(r"^-?\d+(?:\.\d+)?::", "", tag.strip())
+        cleaned = cleaned.replace("::", "")
+        cleaned = cleaned.strip("{}[]() ")
+        return cleaned.lower()
+
+    def _condense_request_text(self, text: str) -> str:
+        """压缩请求文本，便于匹配被空格打散的中英文关键词。"""
+        if not text:
+            return ""
+        condensed = re.sub(r"\s+", "", text)
+        return condensed.lower()
+
+    def _enforce_explicit_request_tags(self, description: str, raw_request: str) -> str:
+        """将用户/Planner 明确写出的关键元素程序化前置并加权。"""
+        if not description or not raw_request:
+            return description
+
+        condensed_request = self._condense_request_text(raw_request)
+        if not condensed_request:
+            return description
+
+        existing_tags = [tag.strip() for tag in description.replace("\n", ",").split(",") if tag.strip()]
+        normalized_existing = self._normalize_prompt_tags(description)
+        priority_tags: List[tuple[str, str]] = []
+
+        def has_any_tag(candidates: List[str]) -> bool:
+            return any(candidate in tag for candidate in candidates for tag in normalized_existing)
+
+        def add_priority_tag(base_tag: str, weighted_tag: str) -> None:
+            if base_tag not in [item[0] for item in priority_tags]:
+                priority_tags.append((base_tag, weighted_tag))
+
+        legwear_requested = False
+
+        # 袜类是用户显式指定且最容易被 LLM 漏掉的关键信息，优先前置并加权。
+        if ("黑丝" in condensed_request) or ("黑色连裤袜" in condensed_request):
+            add_priority_tag("black pantyhose", "{{black pantyhose}}")
+            legwear_requested = True
+        elif ("白丝" in condensed_request) or ("白色连裤袜" in condensed_request):
+            add_priority_tag("white pantyhose", "{{white pantyhose}}")
+            legwear_requested = True
+        elif ("连裤袜" in condensed_request) or ("裤袜" in condensed_request):
+            add_priority_tag("pantyhose", "{{pantyhose}}")
+            legwear_requested = True
+
+        if ("黑色过膝袜" in condensed_request) or ("黑色大腿袜" in condensed_request):
+            add_priority_tag("black thighhighs", "{{black thighhighs}}")
+            legwear_requested = True
+        elif ("白色过膝袜" in condensed_request) or ("白色大腿袜" in condensed_request):
+            add_priority_tag("white thighhighs", "{{white thighhighs}}")
+            legwear_requested = True
+        elif ("过膝袜" in condensed_request) or ("大腿袜" in condensed_request) or ("膝上袜" in condensed_request):
+            add_priority_tag("thighhighs", "{{thighhighs}}")
+            legwear_requested = True
+
+        # 用户明确想看袜类/腿部穿搭时，优先补能看到下半身的构图。
+        if legwear_requested and not has_any_tag(["full body", "lower body"]):
+            add_priority_tag("full body", "full body")
+
+        if not priority_tags:
+            return description
+
+        selected_priority_tags: List[str] = []
+        priority_bases = {base for base, _ in priority_tags}
+
+        for base_tag, weighted_tag in priority_tags:
+            existing_match = next(
+                (tag for tag in existing_tags if self._normalize_single_prompt_tag(tag) == base_tag),
+                None,
+            )
+            if existing_match and ("{{" in existing_match or "::" in existing_match):
+                selected_priority_tags.append(existing_match)
+            else:
+                selected_priority_tags.append(weighted_tag)
+
+        remaining_tags = [
+            tag for tag in existing_tags if self._normalize_single_prompt_tag(tag) not in priority_bases
+        ]
+        merged_tags = selected_priority_tags + remaining_tags
+        logger.debug(
+            f"{self.log_prefix} [LLM触发] 根据显式请求前置关键标签：raw_request={raw_request!r}, added={selected_priority_tags}"
+        )
+        return ", ".join(merged_tags)
 
     async def _persist_last_prompt_record(self, prompt: str, request: str = "") -> None:
         """将上一轮提示词写入 ActionRecords，便于重启后恢复。"""

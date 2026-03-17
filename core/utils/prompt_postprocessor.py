@@ -35,7 +35,6 @@ _CAMERA_TAGS = {
     "selfie",
     "mirror selfie",
     "group selfie",
-    "selfie stick",
     "holding phone",
 }
 
@@ -114,6 +113,10 @@ def remove_selfie_appearance_tags(prompt: str) -> str:
         "wavy hair",
         "curly hair",
         "messy hair",
+        "pixie cut",
+        "cropped hair",
+        "short bob",
+        "bob haircut",
     }
 
     def should_remove(tag: str) -> bool:
@@ -131,8 +134,8 @@ def remove_selfie_appearance_tags(prompt: str) -> str:
         if re.match(r"^[a-z]+-haired$", core):
             return True
 
-        # 发型/长度：long hair / very long hair / short hair / medium hair
-        if re.match(r"^(?:very )?(?:long|short|medium)\s+hair$", core):
+        # 发型/长度：long hair / very long hair / short hair / medium hair / shoulder-length hair
+        if re.match(r"^(?:(?:very )?(?:long|short|medium)|shoulder-length|chin-length|neck-length|waist-length)\s+hair$", core):
             return True
 
         # 常见发型词

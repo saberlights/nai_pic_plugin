@@ -137,7 +137,7 @@ class Nai0DrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
                 await self.send_text("API 返回了无效的数据")
                 return False, "数据格式错误", True
         else:
-            await self.send_text(f"生成图片失败：{result}")
+            await self.send_text(f"生成图片失败：{result[:150]}")
             return False, f"生成失败: {result}", True
 
     def _process_api_response(self, result: str) -> Optional[str]:

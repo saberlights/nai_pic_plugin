@@ -12,7 +12,6 @@ from .core.commands.nai_draw_command import NaiDrawCommand
 from .core.commands.nai_0_draw_command import Nai0DrawCommand
 from .core.commands.nai_admin_command import NaiAdminControlCommand
 from .core.commands.nai_prompt_show_command import NaiPromptShowCommand
-from .core.commands.nai_artist_command import NaiArtistCommand
 from .core.commands.nai_tag_command import NaiTaggerCommand
 from .core.commands.nai_manual_recall_command import NaiManualRecallCommand
 
@@ -43,8 +42,6 @@ class NaiPicPlugin(BasePlugin):
         "prompt_show": "提示词显示配置",
         "prompt_generator": "提示词生成配置",
         "prompt_generator.custom_model": "自定义LLM模型配置（支持多模型、负载均衡）",
-        "artist_generator": "画师串生成配置",
-        "artist_generator.custom_model": "画师串生成自定义LLM模型配置",
         "tagger": "图片打标配置（/打标）",
         "custom_prompt": "自定义系统提示词配置",
     }
@@ -117,6 +114,11 @@ class NaiPicPlugin(BasePlugin):
                     {"name": "示例风格2", "prompt": "artist:example3, artist:example4, year 2024"}
                 ],
                 description="NAI V3 画师风格预设列表（可配置多个），每个预设包含 name（显示名称）和 prompt（画师串内容）"
+            ),
+            "default_artist_preset": ConfigField(
+                type=int,
+                default=1,
+                description="默认使用的画师串预设，支持序号（如 1）或预设名称（如 \"示例风格1\"）。不配置时默认使用第一个预设"
             ),
             "nai_artist_prompt": ConfigField(
                 type=str,
@@ -193,6 +195,11 @@ class NaiPicPlugin(BasePlugin):
                 ],
                 description="NAI V4 画师风格预设列表（可配置多个），每个预设包含 name（显示名称）和 prompt（画师串内容）"
             ),
+            "default_artist_preset": ConfigField(
+                type=int,
+                default=1,
+                description="默认使用的画师串预设，支持序号（如 1）或预设名称（如 \"风格组合1\"）。不配置时默认使用第一个预设"
+            ),
             "nai_artist_prompt": ConfigField(
                 type=str,
                 default="",
@@ -267,6 +274,11 @@ class NaiPicPlugin(BasePlugin):
                     {"name": "风格示例2", "prompt": "1.5::artist:example4::, 1.3::artist:example5::"}
                 ],
                 description="NAI V4.5 画师风格预设列表（可配置多个），每个预设包含 name（显示名称）和 prompt（画师串内容）"
+            ),
+            "default_artist_preset": ConfigField(
+                type=int,
+                default=1,
+                description="默认使用的画师串预设，支持序号（如 1）或预设名称（如 \"风格示例1\"）。不配置时默认使用第一个预设"
             ),
             "nai_artist_prompt": ConfigField(
                 type=str,
@@ -451,43 +463,6 @@ class NaiPicPlugin(BasePlugin):
                 description="自定义模型配置（可选），model_list 中的模型名称必须是系统 model_config 中已定义的模型"
             )
         },
-        "artist_generator": {
-            "model_name": ConfigField(
-                type=str,
-                default="",
-                description="画师串生成使用的LLM模型代号，留空则自动选择"
-            ),
-            "temperature": ConfigField(
-                type=float,
-                default=0.3,
-                description="画师串生成LLM的温度设置"
-            ),
-            "random_temperature": ConfigField(
-                type=float,
-                default=0.7,
-                description="随机模式下的温度设置"
-            ),
-            "max_tokens": ConfigField(
-                type=int,
-                default=200,
-                description="画师串生成LLM响应的最大token"
-            ),
-            "auto_preview": ConfigField(
-                type=bool,
-                default=False,
-                description="是否默认启用画师串预览图模式（使用 /nai artpv on|off 可在运行时切换）"
-            ),
-            "custom_model": ConfigField(
-                type=dict,
-                default={
-                    "model_list": [],
-                    "max_tokens": 200,
-                    "temperature": 0.3,
-                    "slow_threshold": 30.0
-                },
-                description="自定义模型配置（可选），model_list 中的模型名称必须是系统 model_config 中已定义的模型"
-            )
-        },
         "tagger": {
             "enabled": ConfigField(
                 type=bool,
@@ -544,7 +519,6 @@ class NaiPicPlugin(BasePlugin):
         components.append((NaiDrawCommand.get_command_info(), NaiDrawCommand))
         components.append((Nai0DrawCommand.get_command_info(), Nai0DrawCommand))
         components.append((NaiPromptShowCommand.get_command_info(), NaiPromptShowCommand))
-        components.append((NaiArtistCommand.get_command_info(), NaiArtistCommand))
         if self.get_config("tagger.enabled", True):
             components.append((NaiTaggerCommand.get_command_info(), NaiTaggerCommand))
         components.append((NaiManualRecallCommand.get_command_info(), NaiManualRecallCommand))

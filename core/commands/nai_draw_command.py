@@ -37,7 +37,7 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
 
     command_name = "nai_draw"
     command_description = "使用自然语言描述生成图片，例如：/nai 画一张初音未来"
-    command_pattern = r"(?:.*，说：\s*)?/nai\s+(?!on$|off$|st$|sp$|set\b|art\b|artgen\b|artr$|artfix\b|size\b|help$|pt\s|nsfw\b|撤回$)(?P<description>.+)$"
+    command_pattern = r"(?:.*，说：\s*)?/nai\s+(?!on$|off$|st$|sp$|set\b|art\b|artgen\b|artr$|artfix\b|artpv\b|size\b|help$|pt\s|nsfw\b|撤回$)(?P<description>.+)$"
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -190,7 +190,7 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
                 await self.send_text("API 返回了无效的数据")
                 return False, "数据格式错误", True
         else:
-            await self.send_text(f"生成图片失败：{result}")
+            await self.send_text(f"生成图片失败：{result[:150]}")
             return False, f"生成失败: {result}", True
 
     async def _generate_prompt_with_llm(
@@ -267,6 +267,7 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
         # /nai 命令不需要提示词继承和自定义系统提示词，清除这些占位符
         prompt = template.replace("<<CUSTOM_SYSTEM_PROMPT>>", "").strip()
         prompt = prompt.replace("<<PREVIOUS_PROMPT>>", "").strip()
+        prompt = prompt.replace("<<CURRENT_TIME_CONTEXT>>", "").strip()
         prompt = prompt.replace("<<SELFIE_HINT>>", selfie_hint).strip()
         prompt = prompt.replace("<<USER_REQUEST>>", original_request.strip() or "N/A")
         return prompt

@@ -173,14 +173,6 @@ class NaiAdminControlCommand(BaseCommand):
 /nai art <编号> - 切换画师风格预设
   示例：/nai art 2
 
-【画师串生成】
-/nai artgen <风格描述> - 使用LLM生成画师串
-  示例：/nai artgen 可爱萌系风格
-/nai artr - 随机生成画师串
-/nai artfix <反馈> - 迭代优化上次的画师串
-  示例：/nai artfix 线条太粗
-/nai artpv on|off - 开关画师串预览图模式
-
 【图片尺寸】
 /nai size - 查看当前尺寸
 /nai size <尺寸> - 切换图片尺寸

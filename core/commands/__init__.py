@@ -7,7 +7,6 @@ from .nai_admin_command import NaiAdminControlCommand
 from .nai_recall_command import NaiRecallControlCommand
 from .nai_nsfw_command import NaiNsfwControlCommand
 from .nai_prompt_show_command import NaiPromptShowCommand
-from .nai_artist_command import NaiArtistCommand
 from .nai_tag_command import NaiTaggerCommand
 from .nai_manual_recall_command import NaiManualRecallCommand
 
@@ -18,7 +17,6 @@ __all__ = [
     "NaiRecallControlCommand",
     "NaiNsfwControlCommand",
     "NaiPromptShowCommand",
-    "NaiArtistCommand",
     "NaiTaggerCommand",
     "NaiManualRecallCommand",
 ]

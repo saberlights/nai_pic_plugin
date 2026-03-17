@@ -65,13 +65,14 @@ class SessionStateManager:
         # 提示词显示：{chat_key: bool}
         self._prompt_show: Dict[str, bool] = {}
 
-        # 画师串预览图模式：{chat_key: bool}
-        self._artist_preview: Dict[str, bool] = {}
-
         # 上一轮 LLM 生成的正向提示词（用于 action 生图上下文继承）
         # key 使用 chat_stream.stream_id（BaseAction.chat_id），天然实现”全群共享”
         # value = (prompt, request, timestamp)
         self._last_nai_context: Dict[str, Tuple[str, str, float]] = {}
+
+        # 上一轮自拍场景上下文（仅用于 bot 自拍/展示照的连续性）
+        # value = (prompt, request, scene_summary, anchor_data, timestamp)
+        self._last_selfie_context: Dict[str, Tuple[str, str, str, Dict[str, List[str]], float]] = {}
 
     @staticmethod
     def _make_key(platform: str, chat_id: str) -> str:
@@ -183,6 +184,11 @@ class SessionStateManager:
         """
         获取指定会话选定的画师串内容
 
+        优先级：
+        1. 会话级别手动选择（/nai art 命令）
+        2. 配置文件 default_artist_preset（按名称或序号）
+        3. 第一个预设
+
         Args:
             platform: 平台标识
             chat_id: 会话ID
@@ -190,7 +196,7 @@ class SessionStateManager:
             get_config: 获取配置的函数
 
         Returns:
-            选定的画师串内容，未设置则返回第一个预设
+            选定的画师串内容，未设置则返回配置默认或第一个预设
         """
         # 根据模型确定配置节
         if "nai-diffusion-3" in model_name:
@@ -212,14 +218,32 @@ class SessionStateManager:
         if not artist_presets:
             return None
 
-        # 获取选定的索引
-        selected_index = self.get_selected_artist_index(platform, chat_id)
+        # 1. 优先使用会话级别手动选择
+        key = self._make_key(platform, chat_id)
+        if key in self._selected_artists:
+            selected_index = self._selected_artists[key]
+            if 1 <= selected_index <= len(artist_presets):
+                return artist_presets[selected_index - 1]["prompt"]
 
-        # 确保索引有效
-        if 1 <= selected_index <= len(artist_presets):
-            return artist_presets[selected_index - 1]["prompt"]
-        else:
-            return artist_presets[0]["prompt"] if artist_presets else None
+        # 2. 使用配置文件中的 default_artist_preset
+        default_preset = get_config(f"{config_section}.default_artist_preset", None)
+        if default_preset is not None:
+            # 按序号（整数）
+            if isinstance(default_preset, int):
+                if 1 <= default_preset <= len(artist_presets):
+                    return artist_presets[default_preset - 1]["prompt"]
+            # 按名称（字符串）
+            elif isinstance(default_preset, str) and default_preset:
+                for preset in artist_presets:
+                    if preset["name"] == default_preset:
+                        return preset["prompt"]
+                logger.warning(
+                    f"[nai_pic] default_artist_preset '{default_preset}' "
+                    f"在 {config_section}.artist_presets 中未找到，回退到第一个预设"
+                )
+
+        # 3. 回退到第一个预设
+        return artist_presets[0]["prompt"]
 
     @staticmethod
     def _parse_artist_presets(presets_raw: List) -> List[Dict[str, str]]:
@@ -328,26 +352,6 @@ class SessionStateManager:
         self._prompt_show[key] = enabled
         logger.info(f"[nai_pic] 会话 {key} 提示词显示已{'开启' if enabled else '关闭'}")
 
-    # ==================== 画师串预览图模式 ====================
-
-    def is_artist_preview_enabled(
-        self,
-        platform: str,
-        chat_id: str,
-        get_config: Callable
-    ) -> bool:
-        """检查是否启用画师串预览图模式"""
-        key = self._make_key(platform, chat_id)
-        if key in self._artist_preview:
-            return self._artist_preview[key]
-        return get_config("artist_generator.auto_preview", False)
-
-    def set_artist_preview_enabled(self, platform: str, chat_id: str, enabled: bool):
-        """设置画师串预览图模式"""
-        key = self._make_key(platform, chat_id)
-        self._artist_preview[key] = enabled
-        logger.info(f"[nai_pic] 会话 {key} 画师串预览图模式已{'开启' if enabled else '关闭'}")
-
     # ==================== 调试/管理 ====================
 
     def get_session_state_summary(self, platform: str, chat_id: str) -> Dict[str, Any]:
@@ -362,7 +366,6 @@ class SessionStateManager:
             "recall": self._recall_enabled.get(key),
             "nsfw_filter": self._nsfw_filter.get(key),
             "prompt_show": self._prompt_show.get(key),
-            "artist_preview": self._artist_preview.get(key),
         }
 
     def clear_session_state(self, platform: str, chat_id: str):
@@ -375,7 +378,6 @@ class SessionStateManager:
         self._recall_enabled.pop(key, None)
         self._nsfw_filter.pop(key, None)
         self._prompt_show.pop(key, None)
-        self._artist_preview.pop(key, None)
         logger.info(f"[nai_pic] 会话 {key} 状态已清除")
 
     # ==================== 上一轮提示词（Action 专用） ====================
@@ -430,6 +432,47 @@ class SessionStateManager:
     def set_last_nai_prompt(self, chat_stream_id: str, prompt: str) -> None:
         """设置指定聊天流的上一轮 LLM 提示词（仅 action 生图使用）"""
         self.set_last_nai_context(chat_stream_id, prompt)
+
+    # ==================== 上一轮自拍场景（Action 自拍专用） ====================
+
+    def get_last_selfie_context(
+        self, chat_stream_id: str, ttl: float = 0
+    ) -> Tuple[Optional[str], Optional[str], Optional[str], Dict[str, List[str]]]:
+        """获取指定聊天流的上一轮自拍提示词、请求、场景摘要与结构化锚点。"""
+        if not chat_stream_id:
+            return None, None, None, {}
+        entry = self._last_selfie_context.get(chat_stream_id)
+        if entry is None:
+            return None, None, None, {}
+        prompt, request, scene_summary, anchor_data, ts = entry
+        if ttl > 0 and (time.time() - ts) > ttl:
+            self._last_selfie_context.pop(chat_stream_id, None)
+            return None, None, None, {}
+        return prompt or None, request or None, scene_summary or None, dict(anchor_data or {})
+
+    def set_last_selfie_context(
+        self,
+        chat_stream_id: str,
+        prompt: str,
+        request: str = "",
+        scene_summary: str = "",
+        anchor_data: Optional[Dict[str, List[str]]] = None,
+    ) -> None:
+        """设置指定聊天流的上一轮自拍提示词、请求、场景摘要与结构化锚点。"""
+        if not chat_stream_id:
+            return
+        prompt_text = (prompt or "").strip()
+        scene_text = (scene_summary or "").strip()
+        normalized_anchor_data = dict(anchor_data or {})
+        if not prompt_text and not scene_text and not normalized_anchor_data:
+            return
+        self._last_selfie_context[chat_stream_id] = (
+            prompt_text,
+            (request or "").strip(),
+            scene_text,
+            normalized_anchor_data,
+            time.time(),
+        )
 
 
 # 全局单例实例

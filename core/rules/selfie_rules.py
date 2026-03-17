@@ -27,79 +27,67 @@ SELFIE_TRIGGER_KEYWORDS = [
 # ==================== 完整的自拍提示（让 LLM 自己选择类型）====================
 
 SELFIE_HINT_FOR_LLM = """
-【自拍模式判定与规则】
+【自拍模式规则】
 
-## 自拍意图判定（必须执行）
-请根据用户请求判断是否存在自拍/自画像意图。以下情况应判定为自拍：
-- 直接提到自拍相关词：自拍、selfie、镜子、前置摄像头等
-- 向 bot 索要照片/展示：看你的、给我看、秀一下、拍给我看、发张照片、show me 等
-- 明确用第二人称指向 bot 本人出镜：「你穿黑丝」「你的腿」「你今天穿了什么」等
-- 提到拍照动作：拍一张、照一张、合照、合影等
-- 展示/观看请求 + 服饰/身体部位：「看看黑丝」「来张JK」「白丝给我看看」等——用户想看 bot 穿着/展示的样子，属于自拍
+1. 先判断用户是不是在索要 bot 本人出镜的照片。
+以下情况通常判定为自拍：
+- 明确提到 自拍、selfie、镜子、前置、合照
+- 索要 bot 的照片、展示照、穿搭照，如“发张照片”“给我看看你今天穿什么”
+- 明确要求 bot 本人展示穿搭或身体部位，如“你穿黑丝”“给我看鞋子”“来张全身照”
 
-**【关键】区分自拍与普通画图的核心标准：用户是想让 bot 展示自己（自拍），还是想让 bot 画一幅与 bot 无关的画（普通画图）？**
-- 明确画图请求（如"画一个穿黑丝的女孩"、"画黑丝少女"）→ 普通画图，不是自拍
-- 展示/观看请求（如"看看黑丝"、"来张黑丝照"、"穿JK给我看"）→ 自拍（用户想看 bot 穿）
-- 明确指向 bot（如"你穿黑丝"、"你的腿"）→ 自拍
-- 纯讨论（如"黑丝好看吗"）→ 不触发生图
+以下情况通常不是自拍：
+- “画一个穿黑丝的女孩”这类与 bot 无关的普通画图
+- 纯讨论，不是在索要图片
 
-**如果判定不是自拍意图，忽略下方所有自拍规则，按正常模式生成。**
-**如果判定为自拍意图，必须应用以下全部规则：**
+如果不是自拍，忽略下面全部规则，按普通画图处理。
 
-## 自拍硬规则（最高优先级）
-- 除非用户明确要求外貌（发色/发型/瞳色等），否则禁止输出任何外貌描述类标签（hair/eyes/发型/瞳色等）
-- 你可以且应该补充：自拍类型、镜头构图、动作姿势、背景环境、光影氛围（这些是本插件希望你补充的重点）
+2. 自拍时按以下优先级决策：
+- 用户明确要求
+- 已提供的连续性上下文 / 上一轮自拍锚点
+- 当前时间与光线
+- 少量合理补充
 
-## 自拍类型选择规则（按优先级执行）
+3. 自拍硬规则：
+- 除非用户明确要求外貌，否则不要输出发色、发型、瞳色等外貌标签；这些由系统自拍锚点负责
+- 重点补自拍类型、构图、镜头、动作、背景、光线、时间氛围
+- 如果用户没有明确要求变化，默认延续上一轮自拍的场景和穿搭
+- 系统自拍锚点里已经固定的发长、刘海和发夹位置视为硬约束；不要擅自改成 short hair、bob cut，也不要把发夹换到另一侧
+- 如果用户只说宽泛服装类别，如睡衣、裙子、外套、鞋子、袜子、制服、泳装、家居服，不要停留在大类；必须收敛成一个单一具体款式
+- 细化服装时优先确定：主款式、长度、材质、剪裁、覆盖度、颜色；只补必要项，不要把一件衣服写成多个分支
+- 在没有明确性感指令时，宽泛服装默认按自然、日常、非情趣化款式处理；不要把“睡衣”自动发散成低胸性感睡裙或情趣内衣
+- 如果上一轮自拍已经有明确服装锚点，而用户这轮没有说要换款式，就继续沿用，不要只因同属一个大类就换成另一种完全不同的衣服
+- 如果用户这轮只改主衣物、主衣物颜色或材质，默认保留上一轮的袜子、鞋子和未提到的配饰
+- 如果用户这轮只改袜子或鞋子，默认保留上一轮的主衣物
+- 如果用户这轮只是说“再来一张”“继续”“另一张”，没有明确说换衣服、换袜子、换鞋子，就默认整套穿搭强继承，不要自行删掉上一轮已经存在的袜类或鞋类
+- 袜类请优先按以下标准 tag 处理：短袜=ankle socks，普通袜=socks，小腿袜/及膝袜=knee socks，过膝袜/大腿袜=thighhighs，裤袜/连裤袜=pantyhose
+- 黑丝/白丝优先理解成 black pantyhose / white pantyhose；不要误写成 over knee socks
+- 如果用户或上文出现 `over knee socks`，归一理解为 `thighhighs`，不要原样输出
+- `stockings` 只有在用户明确说“丝袜”但无法进一步判断具体长度时才作为兜底；能具体时优先 `pantyhose` 或 `thighhighs`
+- 如果用户明确指定黑丝、白丝、过膝袜、鞋子、腿部、全身穿搭等是本轮观看重点，这些元素就是自拍主视觉元素，优先级高于慵懒感、日常感、室内感、光线氛围
+- 主视觉元素优先放在提示词前部；必要时允许对 1-3 个核心元素使用中高权重，不要把所有 tag 都加权
+- 不要让 sleepy, soft lighting, indoors, living room 这类氛围词压过 black pantyhose, thighhighs, loafers 等明确指定的展示目标
 
-1. **根据用户描述匹配**：分析用户描述中的场景、角度、方式等细节，匹配最合适的类型
-   - 场景线索：浴室/卧室/穿衣镜前 → 镜子自拍，户外/景点 → 自拍杆自拍
-   - 角度线索：从上往下/显脸小 → 高角度俯拍，从下往上/显腿长 → 低角度仰拍
-   - 人数线索：和朋友/两个人/合影 → 合照自拍
-   - 构图线索：全身/看衣服/看穿搭 → 镜子自拍或自拍杆自拍
-   - **展示线索：黑丝/腿部/鞋子/裙子/全身穿搭等需要展示下半身的内容 → 必须选择能看到全身的类型（镜子自拍/自拍杆自拍/低角度仰拍），禁止选高角度俯拍**
-2. **根据上下文推断**：如果用户只说"自拍"，但对话上下文有线索（如之前提到在洗澡→镜子自拍），根据上下文选择
-3. **随机选择**：如果用户只说"自拍"且描述和上下文都无参考信息，从以下类型中随机选择一种，增加多样性
+4. 自拍类型选择：
+- 只有明确提到镜子、镜前、浴室镜、穿衣镜、全身镜，或上下文强烈限定在镜前时，才选择镜子自拍
+- 需要展示全身、穿搭、腿部、袜子、鞋子时，优先选择能清楚展示下半身的构图，不要选高角度俯拍
+- 用户只说“自拍”“来一张”“再来一张”“看看”时，在合理候选里选择一种，不要长期固定成单一类型
+- 不要使用自拍杆自拍
+- 如果当前镜头会遮挡用户明确要看的元素，必须优先改构图去展示该元素，而不是保留更有气氛但看不清重点的自拍角度
 
-## 自拍类型及对应标签
+5. 自拍类型与必须标签：
+- 手机前置自拍：selfie, pov, looking at viewer
+- 镜子自拍：mirror selfie, holding phone, looking at viewer
+- 高角度俯拍自拍：selfie, from above, pov, looking up
+- 低角度仰拍自拍：selfie, from below, pov, looking down
+- 合照自拍：group selfie, pov, looking at viewer
 
-**【重要】只有"必须标签"是固定的，其他所有标签请根据场景自由发挥，不要重复使用相同组合**
-
-### 1. 手机前置自拍
-- **必须标签**：selfie, pov, looking at viewer
-- **方向**：手机在画面外看不到，通常是近景或半身，自由搭配表情、光线、氛围
-
-### 2. 镜子自拍
-- **必须标签**：mirror selfie, holding phone, looking at viewer
-- **方向**：通过镜子反射拍摄，可以是全身或半身，自由搭配场景（浴室、卧室、试衣间等）
-
-### 3. 高角度俯拍自拍
-- **必须标签**：selfie, from above, pov, looking up
-- **方向**：从上往下拍，显脸小大眼效果，手机在画面外，自由搭配可爱/甜美方向的元素
-
-### 4. 低角度仰拍自拍
-- **必须标签**：selfie, from below, pov, looking down
-- **方向**：从下往上拍，显腿长气场强，手机在画面外，自由搭配自信/酷飒方向的元素
-
-### 5. 合照自拍
-- **必须标签**：group selfie, pov, looking at viewer
-- **方向**：多人合照，手机在画面外，自由搭配人物互动姿态和亲密感
-
-### 6. 自拍杆自拍
-- **必须标签**：selfie stick, wide angle, pov
-- **方向**：广角效果，通常是全身或环境人像，自由搭配户外场景和背景元素
-
-## 通用规则
-- **必须**：looking at viewer（直视镜头）
-- **必须**：pov（第一人称视角，镜子自拍除外）
-- 表情、手势、光线、氛围等：根据用户描述和场景自由发挥，追求多样性
-
-## 重要提醒
-- 前置自拍时手机在画面外，不要添加 holding phone、smartphone 等标签
-- 只有镜子自拍才能看到手机（通过镜子反射）
-- 不要使用 arm up（向上举手），自拍手臂是向前伸
-- **禁止生成角色外貌描述**（发色、瞳色、发型等），角色特征由系统自动添加
-- 不要重复表达相同概念（如 mirror selfie 已经表达镜子，不需要再加 mirror, reflection）
+6. 通用提醒：
+- 非镜子自拍时，手机应在画面外，不要添加 holding phone、smartphone
+- 只有镜子自拍才能自然看到手机
+- 非镜子自拍通常带 pov；镜子自拍通常不带 pov
+- 不要生成 selfie stick、holding selfie stick、arm up
+- 不要重复表达同一个概念，如 mirror selfie 后又加 mirror、reflection
+- 对同一套穿搭，只保留一个明确主款式，不要同时混入彼此冲突的服装分支
 """
 
 
@@ -124,7 +112,7 @@ def detect_selfie_mode(description: str) -> bool:
 
 # LLM 输出中的自拍标签（用于从生成结果判断是否为自拍）
 _SELFIE_OUTPUT_TAGS = [
-    "selfie", "mirror selfie", "group selfie", "selfie stick",
+    "selfie", "mirror selfie", "group selfie",
     "self-shot", "self shot",
 ]
 
@@ -173,20 +161,41 @@ def merge_selfie_prompt(generated_prompt: str, selfie_prompt_add: str) -> str:
     if not add_tags:
         return generated_prompt
 
-    # 冲突类别关键词
-    conflict_keywords = {
-        "hair_color": ["hair", "haired"],
-        "eye_color": ["eyes", "eyed"],
-        "hair_style": ["twintails", "ponytail", "braid", "bun", "bob", "hime cut"],
-    }
+    def normalize_tag(tag: str) -> str:
+        """移除常见权重包装，便于判断外貌冲突。"""
+        tag = tag.strip()
+        tag = re.sub(r"^[+-]?\d+(?:\.\d+)?::", "", tag).strip()
+        tag = re.sub(r"::\s*$", "", tag).strip()
+        tag = tag.strip("{}[]() ")
+        return re.sub(r"\s+", " ", tag.lower()).strip()
 
-    # 检测配置中的角色特征属于哪些类别
-    config_categories = set()
-    for tag in add_tags:
-        tag_lower = tag.lower()
-        for category, keywords in conflict_keywords.items():
-            if any(kw in tag_lower for kw in keywords):
-                config_categories.add(category)
+    def is_hair_related(tag: str) -> bool:
+        core = normalize_tag(tag)
+        hair_keywords = [
+            " hair", "haired", "twintails", "twin tails", "ponytail", "side ponytail",
+            "braid", "pigtails", "bun", "bob cut", "hime cut", "bangs", "forelock",
+            "ahoge", "side lock", "side locks", "hairclip", "hair clip", "barrette",
+            "hair ornament", "hair ribbon", "hair bow", "hairband", "headband",
+            "scrunchie", "wavy ends", "loose hair strands", "pixie cut", "cropped hair",
+            "short bob", "bob haircut", "shoulder-length hair", "chin-length hair",
+        ]
+        return any(keyword in core for keyword in hair_keywords)
+
+    def is_eye_related(tag: str) -> bool:
+        core = normalize_tag(tag)
+        eye_colors = {
+            "black", "brown", "blue", "red", "green", "purple", "orange",
+            "gray", "grey", "golden", "yellow", "pink", "aqua", "cyan",
+        }
+        if core in {"eyelashes", "long eyelashes", "heterochromia"}:
+            return True
+        match = re.search(r"\b([a-z]+)\s+eyes\b", core)
+        if match and match.group(1) in eye_colors:
+            return True
+        return bool(re.search(r"\b[a-z]+-eyed\b", core))
+
+    has_hair_anchor = any(is_hair_related(tag) for tag in add_tags)
+    has_eye_anchor = any(is_eye_related(tag) for tag in add_tags)
 
     # 解析 LLM 生成的标签，移除与配置冲突的标签
     generated_tags = [
@@ -197,17 +206,11 @@ def merge_selfie_prompt(generated_prompt: str, selfie_prompt_add: str) -> str:
 
     filtered_tags = []
     for tag in generated_tags:
-        tag_lower = tag.lower()
-        is_conflict = False
-
-        for category in config_categories:
-            keywords = conflict_keywords[category]
-            if any(kw in tag_lower for kw in keywords):
-                is_conflict = True
-                break
-
-        if not is_conflict:
-            filtered_tags.append(tag)
+        if has_hair_anchor and is_hair_related(tag):
+            continue
+        if has_eye_anchor and is_eye_related(tag):
+            continue
+        filtered_tags.append(tag)
 
     # 组合：在人数标签后插入角色特征
     if len(filtered_tags) >= 2:
