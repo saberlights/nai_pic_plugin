@@ -31,7 +31,10 @@ from ..services.prompt_memory import (
     _REQ_LINE_PREFIX,
     _REQ_SEPARATOR,
 )
-from ..utils.prompt_output_parser import parse_prompt_from_structured_output
+from ..utils.prompt_output_parser import (
+    parse_prompt_from_structured_output,
+    parse_structured_prompt_payload,
+)
 from ..utils.prompt_postprocessor import (
     normalize_prompt_order,
     remove_selfie_appearance_tags,
@@ -52,44 +55,41 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
     action_name = "nai_web_draw"
     action_description = (
         "生成图片、自拍、照片。"
-        "用于画图、自拍、拍照、发照片等一切需要生成图像的场景。"
+        "用户明确索要图像、自拍、照片、展示照、看某个部位/穿搭时触发。"
+        "纯聊天、提问偏好、讨论穿搭审美时不触发。"
     )
 
     # 动作参数定义
     default_action_parameters = {
         "description": (
-            "画面内容描述。"
-            "用户直接描述了画面时，保留原始描述（如'初音未来，制服，白丝'）；"
-            "用户请求依赖上下文时（如'自拍'、'拍一张'、'再来一张'），"
-            "结合对话上下文给出完整描述（如你刚说在洗澡，用户说'自拍'→'在浴室洗澡时的自拍'）；"
-            "如果是延续上一张图的请求（如'再来一张'、'换个姿势'、'还是白丝但坐着拍'），"
-            "description应建立在上一轮图像主题基础上，写成'保留上一轮主体/设定 + 本轮变化'，而不是完全从零改写；"
-            "如果用户只指定局部变化（如'换成白丝'、'改成胖次特写'、'表情害羞一点'），"
-            "则上一轮未被明确修改的核心设定默认保留，尤其是主体、场景、时间/光线、构图、风格、氛围以及整套穿搭，不要把这些默认继承项漏掉；"
-            "整套穿搭继承时，要明确保留主衣物、下装、袜类、鞋类和主要配饰；用户只改其中一项时，其余同类默认延续，不要因为提到'换成白色睡衣'就把黑丝、鞋子或配饰一并删掉；"
-            "像'再来一张'、'继续'、'另一张'这类续图，如果用户没有明确说换场景、换衣服、换袜子、换鞋子，就默认沿用上一轮的主体、场景和整套穿搭，只变化姿势、表情、镜头、角度或局部动作；"
-            "如果用户只给宽泛服装类别（如睡衣、裙子、外套、毛衣、鞋子、袜子、制服、家居服），description里要先收敛成一个单一、明确、可画的具体款式，不要只写大类名，也不要把同一件衣服写成多个互斥分支；"
-            "当用户只要求改颜色、材质、长度、厚度、露肤程度等局部属性时，默认是在上一轮同一件单品上微调，而不是换成另一种完全不同的款式；"
-            "当用户想看你的样子（如'看看黑丝'、'穿JK给我看'），"
-            "必须体现是你本人出镜（如'看看你穿黑丝的样子'、'你穿JK的自拍'）；"
-            "用户明确指定的关键要素必须保留，如服装（白丝/黑丝/JK）、部位（腿/脚/上半身）、视角（自拍/俯视/镜前）、氛围（居家/慵懒/浴室）、时间（白天/夜晚）等，不要擅自泛化成普通自拍或普通插画；"
-            "description只写最终要画出来的内容，不要写插件名、动作名、系统说明、占位符或解释性语句"
+            "画面内容描述，只写最终要画的内容，不写系统说明或解释。\n"
+            "规则：\n"
+            "1. 用户直接描述画面→保留原始描述；依赖上下文→结合对话补全（如你刚说在洗澡，用户说'自拍'→'在浴室洗澡时的自拍'）\n"
+            "2. 用户想看你本人→必须体现自拍/本人出镜（如'看看腿'→'自拍，展示腿部'；'穿JK给我看'→'你穿JK的自拍'）\n"
+            "3. 续图（'再来一张'、'继续'、'换个姿势'）→以上一轮为底稿，只改用户要求变化的部分；用户未提及的主体、场景、整套穿搭（主衣物+袜类+鞋类+配饰）默认沿用\n"
+            "4. 局部修改（'换成白丝'、'表情害羞一点'、'改成黑色'）→只改指定项，其余继承；改颜色/材质/长度等属性时是在同一件单品上微调，不换成另一种款式；改主衣物不删袜鞋，改袜类不删主衣物\n"
+            "5. 宽泛服装类别（睡衣、裙子、袜子等）→收敛成一个具体款式，不写大类名，不写多个互斥分支\n"
+            "6. 用户指定的关键要素（服装、部位、视角、氛围、时间）必须保留，不要泛化成普通自拍"
         ),
         "size": "图片尺寸（默认从配置获取）",
     }
 
     # 动作使用场景（触发条件）
     action_require = [
-        "仅在以下情况触发：",
+        "触发条件（满足任一即触发）：",
         "1. 用户明确要求画图、生成图片、创作图像",
-        "2. 用户明确要求自拍、拍照、发照片，或明确想看你本人出镜的样子（如'自拍一张'、'发张照片'、'看看你'、'拍给我看'）",
-        "3. 用户正在延续同一发图话题（如'再来一张'、'换个姿势'、'重新画'、'继续'），且语义上明显是在上一张图的主题上继续变化",
-        "4. 当前对话已经明显进入展示型/看图型互动，对方虽然没直说'发图'，但表达的是明确的视觉索求，且结合上文可以自然理解为想继续看图",
-        "不要在普通聊天、知识问答、技术讨论中触发生图",
-        "不要仅因聊到穿搭、丝袜、自拍、暧昧互动就主动发图，除非对方明显是在索要视觉展示；模糊的夸赞、调情、闲聊不算发图请求",
-        "如果文字回复已足够完成互动，不要额外触发生图",
-        "非用户主动要求重画时，不要重复生成相同内容",
-        "如果无法从当前语境明确判断对方是在要图，优先先文字回复，不要为了活跃气氛擅自触发生图",
+        "2. 用户明确要求自拍、拍照、发照片、看你本人出镜（如'自拍一张'、'发张照片'、'看看你'、'拍给我看'）",
+        "3. 用户明确要求看你的某个部位、穿搭或展示照（如'看看腿'、'给我看黑丝'、'秀一下'、'穿JK给我看'、'看看你今天穿什么'）",
+        "4. 用户正在延续上一张图的话题（如'再来一张'、'换个姿势'、'继续'），语义上是在上一张图基础上变化",
+        "5. 对话已进入看图型互动，用户表达的是明确的视觉索求",
+        "",
+        "不触发条件：",
+        "- 纯聊天、知识问答、技术讨论",
+        "- 偏好提问（'你最喜欢的衣服是什么'、'你喜欢JK还是连衣裙'、'你觉得黑丝怎么样'）",
+        "- 模糊的夸赞、调情、闲聊，没有明确索要视觉展示",
+        "- 文字回复已足够完成互动时，不额外触发生图",
+        "- 非用户主动要求重画时，不重复生成相同内容",
+        "- 无法明确判断是在要图时，优先文字回复",
     ]
     associated_types = ["text"]
 
@@ -98,6 +98,7 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.api_client = NaiWebClient(self)
+        self._last_structured_prompt_payload: Optional[Dict[str, Any]] = None
 
     async def execute(self) -> Tuple[bool, Optional[str]]:
         """执行 NovelAI Web 图片生成"""
@@ -133,8 +134,10 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
                 ttl=inherit_ttl,
             )
 
-        # 从 LLM 输出检测是否为自拍（LLM 自行判定后会在输出中包含 selfie 标签）
-        is_selfie = detect_selfie_from_output(description)
+        # 优先信任结构化输出中的意图字段，避免再由代码反向猜测
+        structured_payload = self._last_structured_prompt_payload or {}
+        structured_intent = str(structured_payload.get("intent", "") or "").strip().lower()
+        is_selfie = structured_intent == "selfie" or detect_selfie_from_output(description)
 
         # 处理自拍模式（添加角色特征）
         selfie_base_prompt = description
@@ -145,12 +148,7 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
                 raw_description,
                 include_selfie_prompt_add=True,
                 log_changes=True,
-            )
-            description = self._inherit_selfie_clothing_from_anchor(
-                description,
-                raw_description,
-                previous_selfie_anchor,
-            )
+                )
             logger.debug(f"{self.log_prefix} [LLM触发] 自拍模式已启用")
             anchor_data = self._extract_selfie_anchor_data(description)
             scene_summary = self._format_selfie_anchor_summary(anchor_data)
@@ -164,7 +162,14 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
                 )
                 session_state.set_last_nai_context(self.chat_id, description, raw_description)
 
-        description = self._enforce_explicit_request_tags(description, raw_description)
+        if self.get_config("prompt_generator.enable_programmatic_fallbacks", False):
+            if is_selfie:
+                description = self._inherit_selfie_clothing_from_anchor(
+                    description,
+                    raw_description,
+                    previous_selfie_anchor,
+                )
+            description = self._enforce_explicit_request_tags(description, raw_description)
 
         # 轻量排序（可配置关闭）
         if self.get_config("prompt_generator.enforce_tag_order", False):
@@ -740,14 +745,12 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
 
         default_scene_hint = self._build_default_selfie_scene_hint()
         prompt_reference = self._build_selfie_prompt_reference(prompt_text)
-        change_profile = self._analyze_selfie_change_request(request_text)
         lines: List[str] = [
             "<selfie_scene_context>",
-            "你正在处理 bot 本人自拍/展示照 的连续发图请求，目标是让图片像顺着聊天自然发出来的，而不是每次都重开新场景。",
-            "请先判断本次更适合 keep / adjust / switch 哪一种：",
-            "- keep：用户只是再来一张、换个姿势、换个角度、继续、还是这身、表情变化、构图变化，默认保留背景与服装锚点",
-            "- adjust：用户想来点不一样，但没明确换地点或换衣服时，优先调整姿势、镜头、光线、取景或轻微布景，不要优先把背景和衣服一起整套换掉",
-            "- switch：只有用户明确要求换背景、换地点、换场景、换衣服，或当前锚点与用户要求明显冲突时，才切换对应部分",
+            "你正在处理 bot 本人自拍/展示照 的连续发图请求。",
+            "代码侧会在最终生图前固定合并 selfie_prompt_add，它是角色身份/外貌硬锚点；你不需要改写、解释或覆盖这部分硬锚点。",
+            "请根据当前用户请求、上一轮自拍提示词和下面的锚点信息，自行判断 continuity 应该是 new / keep / adjust / switch。",
+            "判断原则：用户明确要求优先；未明确要求变化的场景、构图、光线、穿搭可以延续；只有用户明确要求更换，或旧锚点与本轮要求冲突时才切换。",
         ]
 
         if scene_summary:
@@ -758,14 +761,6 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
             if prompt_reference:
                 lines.append("上一轮自拍提示词参考：")
                 lines.append(prompt_reference)
-            lines.append("如果用户这次没有明确改场景，默认延续上面的背景主锚点。")
-            lines.append("如果用户这次没有明确改服装，默认延续上面的穿搭主锚点。")
-            lines.append("如果用户只改衣服、袜子、鞋子、配饰等穿搭细节，保留场景背景。")
-            lines.append("如果用户只改主衣物、主衣物颜色或材质，默认保留上一轮的袜子、鞋子和其他未提到的配饰。")
-            lines.append("如果用户只改袜子或鞋子，默认保留上一轮的主衣物。")
-            lines.append("如果用户只说“再来一张”“继续”“另一张”之类，没有提到换衣服、换袜子、换鞋子，就把上一轮整套穿搭都当作强继承项，不要自行删掉黑丝、短袜、鞋子等已有穿搭。")
-            lines.append("如果用户只改地点、背景、光线、自拍方式，保留服装。")
-            lines.append("如果用户只说“来点不一样”，优先改变动作、构图、表情或光线，不要直接跳到完全不同的背景或整套换衣。")
         else:
             lines.append("当前没有可延续的自拍锚点。除非用户明确指定地点或穿搭，否则不要随机跳到景点、街拍、海边等大场景，也不要无理由突然换成完全不同的衣服主题。")
             if prompt_reference:
@@ -773,10 +768,9 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
                 lines.append("上一轮自拍提示词参考：")
                 lines.append(prompt_reference)
 
-        if anchor_data:
-            lines.append(self._build_selfie_anchor_directive(anchor_data, change_profile))
         lines.append(f"默认自拍场景兜底：{default_scene_hint}")
         lines.append("参考上一轮提示词时，优先继承其中稳定的场景、服装、视角和光线锚点；不要机械照抄，用户明确要求变化的部分必须改。")
+        lines.append("你只需要在最终 JSON/tag 结果里体现判断结果，不要输出解释过程。")
         lines.append("</selfie_scene_context>")
         return "\n".join(lines)
 
@@ -812,59 +806,6 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
         if excerpt != text.strip():
             excerpt = f"{excerpt}, ..."
         return excerpt
-
-    def _build_selfie_anchor_directive(
-        self,
-        anchor_data: Dict[str, List[str]],
-        change_profile: Dict[str, bool],
-    ) -> str:
-        """根据结构化锚点和本轮请求，生成更精确的继承指令。"""
-        scene_labels = self._join_anchor_values(anchor_data, ["location", "scene_type"])
-        outfit_labels = self._join_anchor_values(anchor_data, ["outfit_color", "outfit", "legwear", "footwear"])
-        lighting_labels = self._join_anchor_values(anchor_data, ["lighting", "time_of_day"])
-        framing_labels = self._join_anchor_values(anchor_data, ["framing"])
-
-        lines: List[str] = ["结构化继承建议："]
-        if scene_labels:
-            lines.append(f"- 场景锚点：{scene_labels}")
-        if outfit_labels:
-            lines.append(f"- 服装锚点：{outfit_labels}")
-        if lighting_labels:
-            lines.append(f"- 光线/时间锚点：{lighting_labels}")
-        if framing_labels:
-            lines.append(f"- 构图锚点：{framing_labels}")
-
-        if change_profile.get("explicit_keep"):
-            lines.append("- 本轮用户明显要求保持原设定，优先强保留以上锚点，只调整轻微动作和表情。")
-        elif change_profile.get("implicit_keep_followup"):
-            lines.append("- 本轮更像“再来一张/继续”式续图请求；默认强保留主衣物、袜类、鞋子、场景与光线，只允许调整姿势、表情、镜头或轻微构图。")
-        elif change_profile.get("change_main_outfit_only"):
-            lines.append("- 本轮只改主衣物或主衣物颜色/材质；袜类、鞋子、配饰默认继承，场景、光线、构图也默认继承。")
-        elif change_profile.get("change_legwear_only"):
-            lines.append("- 本轮只改袜类/腿部穿搭；主衣物、鞋子、场景、光线默认继承。")
-        elif change_profile.get("change_footwear_only"):
-            lines.append("- 本轮只改鞋子/足部状态；主衣物、袜类、场景、光线默认继承。")
-        elif change_profile.get("change_outfit_only"):
-            lines.append("- 本轮只改穿搭字段；未明确提到的主衣物、袜类、鞋子、配饰尽量继承，场景、光线、构图默认继承。")
-        elif change_profile.get("change_scene_only"):
-            lines.append("- 本轮只改场景字段；服装默认继承，构图和光线尽量沿用。")
-        elif change_profile.get("soft_variation"):
-            lines.append("- 本轮更像轻微变化请求；优先改姿势、表情、镜头距离或局部光线，不要改大场景和整套衣服。")
-        elif change_profile.get("change_scene") and change_profile.get("change_outfit"):
-            lines.append("- 本轮同时涉及场景与穿搭变化；仅修改用户明确提到的字段，未提到的视角和光线尽量稳定。")
-        else:
-            lines.append("- 默认继承以上结构化锚点；只有用户明确指定变化时，才替换对应字段。")
-
-        return "\n".join(lines)
-
-    def _join_anchor_values(self, anchor_data: Dict[str, List[str]], keys: List[str]) -> str:
-        """按字段拼接结构化锚点值。"""
-        labels: List[str] = []
-        for key in keys:
-            for value in anchor_data.get(key, []):
-                if value not in labels:
-                    labels.append(value)
-        return "、".join(labels)
 
     def _analyze_selfie_change_request(self, request_text: str) -> Dict[str, bool]:
         """分析本轮自拍请求更像保留、轻改还是切换哪些锚点。"""
@@ -1439,10 +1380,14 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
         if not prompt:
             return ""
 
+        self._last_structured_prompt_payload = parse_structured_prompt_payload(prompt)
+
         parsed = parse_prompt_from_structured_output(prompt)
         if parsed:
             logger.debug(f"{self.log_prefix} [LLM触发] 结构化提示词解析命中（JSON->prompt），将跳过文本清洗")
             return parsed
+
+        self._last_structured_prompt_payload = None
 
         cleaned = prompt.strip()
 

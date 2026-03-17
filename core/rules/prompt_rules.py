@@ -143,11 +143,19 @@ SFW_PROMPT_GENERATOR_JSON_TEMPLATE = f"""
 你必须只输出一行 JSON，不要代码块，不要解释，不要前后缀。
 
 输出格式：
-{{"version":2,"format":"single|multi","global":[...],"people":[[...],[...]]}}
+{{"version":3,"format":"single|multi","intent":"normal|selfie","continuity":"new|keep|adjust|switch","global":[...],"people":[[...],[...]]}}
 
 字段规则：
-- version 固定为 2
+- version 固定为 3
 - format 只能是 "single" 或 "multi"
+- intent 必须显式填写：
+  - normal = 普通画图
+  - selfie = bot 本人自拍/展示照
+- continuity 必须显式填写：
+  - new = 全新主题
+  - keep = 基本延续上一轮，只微调局部
+  - adjust = 延续主锚点，但改姿势、镜头、局部光线或局部穿搭
+  - switch = 明确切换场景、穿搭或主题
 - global 放共享内容：人数、场景、镜头、光线、时间、共同动作
 - people 放人物差异内容：身份、服装、局部动作、人物专属标签
 - single 时，people 可省略或输出 []
@@ -157,6 +165,7 @@ SFW_PROMPT_GENERATOR_JSON_TEMPLATE = f"""
 - 同一输入尽量保持标签集合与顺序稳定
 - 如果拿不准，选择更少但更强的标签，不要为了变化而变化
 - 如果用户明确指定了本轮最想看的视觉重点，优先把这些重点放到 global 前部；环境和氛围信息后置
+- 代码会直接读取 intent 和 continuity；不要省略，不要换成别的词
 
 外貌强约束（已知角色）：
 - 若输出中包含已知角色 tag，且用户未明确要求外貌，则不要输出发色、发型、瞳色等外貌标签
@@ -180,6 +189,7 @@ SFW_PROMPT_GENERATOR_JSON_TEMPLATE = f"""
 - 你只负责输出 JSON；不要自己拼接换行，不要输出 "|" 字符
 - 不要输出自然语言句子；数组内容必须都可直接作为 tag 使用
 - global 不能为空，必须包含有效 tag
+- 除 global / people 外，只有 version / format / intent / continuity 这几个顶层字段
 
 禁止事项：
 - 禁止输出 JSON 之外的任何字符
@@ -326,11 +336,19 @@ PROMPT_GENERATOR_JSON_TEMPLATE = f"""
 你必须只输出一行 JSON，不要代码块，不要解释，不要前后缀。
 
 输出格式：
-{{"version":2,"format":"single|multi","global":[...],"people":[[...],[...]]}}
+{{"version":3,"format":"single|multi","intent":"normal|selfie","continuity":"new|keep|adjust|switch","global":[...],"people":[[...],[...]]}}
 
 字段规则：
-- version 固定为 2
+- version 固定为 3
 - format 只能是 "single" 或 "multi"
+- intent 必须显式填写：
+  - normal = 普通画图
+  - selfie = bot 本人自拍/展示照
+- continuity 必须显式填写：
+  - new = 全新主题
+  - keep = 基本延续上一轮，只微调局部
+  - adjust = 延续主锚点，但改姿势、镜头、局部光线或局部穿搭
+  - switch = 明确切换场景、穿搭或主题
 - global 放共享内容：人数、场景、镜头、光线、时间、共同动作
 - people 放人物差异内容：身份、服装、局部动作、人物专属标签
 - single 时，people 可省略或输出 []
@@ -340,6 +358,7 @@ PROMPT_GENERATOR_JSON_TEMPLATE = f"""
 - 同一输入尽量保持标签集合与顺序稳定
 - 如果拿不准，选择更少但更强的标签，不要为了变化而变化
 - 如果用户明确指定了本轮最想看的视觉重点，优先把这些重点放到 global 前部；环境和氛围信息后置
+- 代码会直接读取 intent 和 continuity；不要省略，不要换成别的词
 
 外貌强约束（已知角色）：
 - 若输出中包含已知角色 tag，且用户未明确要求外貌，则不要输出发色、发型、瞳色等外貌标签
@@ -363,6 +382,7 @@ PROMPT_GENERATOR_JSON_TEMPLATE = f"""
 - 你只负责输出 JSON；不要自己拼接换行，不要输出 "|" 字符
 - 不要输出自然语言句子；数组内容必须都可直接作为 tag 使用
 - global 不能为空，必须包含有效 tag
+- 除 global / people 外，只有 version / format / intent / continuity 这几个顶层字段
 
 禁止事项：
 - 禁止输出 JSON 之外的任何字符

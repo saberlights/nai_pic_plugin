@@ -419,13 +419,18 @@ class NaiPicPlugin(BasePlugin):
             ),
             "output_format": ConfigField(
                 type=str,
-                default="text",
-                description="提示词生成输出格式：text=纯提示词（默认），json=结构化输出（支持多人|分段更稳定）"
+                default="json",
+                description="提示词生成输出格式：json=结构化输出（默认，支持多人|分段与意图/连续性元数据），text=纯提示词"
             ),
             "selfie_appearance_policy": ConfigField(
                 type=str,
                 default="auto",
-                description="自拍外貌标签策略：auto=仅在用户未指定外貌时移除LLM随机发色/发型/瞳色（尽量保留配置中的自拍特征），never=始终移除（除非用户明确指定），keep=不移除"
+                description="自拍外貌标签策略：auto=默认保留程序固定自拍锚点，并在用户未指定外貌时移除LLM随机发色/发型/瞳色；never=始终移除（除非用户明确指定）；keep=完全保留LLM输出"
+            ),
+            "enable_programmatic_fallbacks": ConfigField(
+                type=bool,
+                default=False,
+                description="是否启用程序化提示词兜底修正（如自拍穿搭继承、显式重点前置）。默认关闭，优先依赖 LLM 决策。"
             ),
             "enforce_tag_order": ConfigField(
                 type=bool,

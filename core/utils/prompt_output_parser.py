@@ -15,7 +15,7 @@ LLM 输出解析工具
 from __future__ import annotations
 
 import json
-from typing import Optional
+from typing import Optional, Dict, Any
 
 
 def _strip_code_fence(text: str) -> str:
@@ -41,6 +41,47 @@ def _join_tags(tags) -> str:
     if not isinstance(tags, list):
         return ""
     return ", ".join([t.strip() for t in tags if isinstance(t, str) and t.strip()]).strip()
+
+
+def parse_structured_prompt_payload(text: str) -> Optional[Dict[str, Any]]:
+    """
+    从结构化输出中提取原始 payload。
+
+    成功时返回 JSON 对象本身，失败返回 None。
+    调用方可进一步读取 intent / continuity / global / people 等字段。
+    """
+    cleaned = _strip_code_fence(text).strip()
+    if not cleaned:
+        return None
+
+    candidates = [cleaned]
+    if any(token in cleaned for token in ('"prompt"', '"global"', '"people"')):
+        start = cleaned.find("{")
+        end = cleaned.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            candidates.append(cleaned[start:end + 1])
+
+    for cand in candidates:
+        try:
+            obj = json.loads(cand)
+        except Exception:
+            continue
+
+        if not isinstance(obj, dict):
+            continue
+
+        version = obj.get("version")
+        has_v2_fields = isinstance(obj.get("global"), list)
+        has_v1_prompt = isinstance(obj.get("prompt"), str) and obj.get("prompt", "").strip()
+        if version == 2 or (isinstance(version, int) and version >= 2):
+            if has_v2_fields or has_v1_prompt:
+                return obj
+            continue
+
+        if has_v1_prompt:
+            return obj
+
+    return None
 
 
 def _render_from_v2(obj: dict) -> Optional[str]:
@@ -92,39 +133,23 @@ def parse_prompt_from_structured_output(text: str) -> Optional[str]:
     Returns:
         prompt 字符串（可能包含换行，用于多人 | 分段），失败返回 None
     """
-    cleaned = _strip_code_fence(text).strip()
-    if not cleaned:
+    obj = parse_structured_prompt_payload(text)
+    if not obj:
         return None
 
-    candidates = [cleaned]
-    if '"prompt"' in cleaned:
-        start = cleaned.find("{")
-        end = cleaned.rfind("}")
-        if start != -1 and end != -1 and end > start:
-            candidates.append(cleaned[start:end + 1])
+    version = obj.get("version")
+    if version == 2 or (isinstance(version, int) and version >= 2):
+        rendered = _render_from_v2(obj)
+        if rendered:
+            return rendered
 
-    for cand in candidates:
-        try:
-            obj = json.loads(cand)
-        except Exception:
-            continue
-
-        if not isinstance(obj, dict):
-            continue
-
-        version = obj.get("version")
-        if version == 2 or (isinstance(version, int) and version >= 2):
-            rendered = _render_from_v2(obj)
-            if rendered:
-                return rendered
-
-        prompt = obj.get("prompt")
-        if isinstance(prompt, str) and prompt.strip():
-            normalized = prompt.strip()
-            # 一些模型会把换行二次转义成 \\n，导致解析后仍是字面量 \n。
-            # 多人 | 分段基本都会出现 "\\n|" 形态，这里做一次温和纠正。
-            if "\\n|" in normalized:
-                normalized = normalized.replace("\\n", "\n")
-            return normalized
+    prompt = obj.get("prompt")
+    if isinstance(prompt, str) and prompt.strip():
+        normalized = prompt.strip()
+        # 一些模型会把换行二次转义成 \\n，导致解析后仍是字面量 \n。
+        # 多人 | 分段基本都会出现 "\\n|" 形态，这里做一次温和纠正。
+        if "\\n|" in normalized:
+            normalized = normalized.replace("\\n", "\n")
+        return normalized
 
     return None

@@ -18,7 +18,10 @@ from src.plugin_system import llm_api
 
 from .session_state import session_state
 from ..rules.selfie_rules import get_selfie_hint
-from ..utils.prompt_output_parser import parse_prompt_from_structured_output
+from ..utils.prompt_output_parser import (
+    parse_prompt_from_structured_output,
+    parse_structured_prompt_payload,
+)
 from ..utils.prompt_postprocessor import normalize_prompt_order
 
 logger = get_logger("nai_pic_plugin")
@@ -46,6 +49,7 @@ class PromptGeneratorService:
         """
         self.get_config = get_config
         self.log_prefix = log_prefix
+        self.last_structured_payload: Optional[Dict[str, Any]] = None
 
     async def generate_prompt(
         self,
@@ -245,11 +249,15 @@ class PromptGeneratorService:
         if not prompt:
             return ""
 
+        self.last_structured_payload = parse_structured_prompt_payload(prompt)
+
         # 优先尝试解析结构化 JSON 输出（成功则不再做文本清洗，避免误伤多人 | 分段）
         parsed = parse_prompt_from_structured_output(prompt)
         if parsed:
             logger.debug(f"{self.log_prefix} 结构化提示词解析命中（JSON->prompt），将跳过文本清洗")
             return parsed
+
+        self.last_structured_payload = None
 
         cleaned = prompt.strip()
 

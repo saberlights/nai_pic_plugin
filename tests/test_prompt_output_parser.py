@@ -15,6 +15,7 @@ _mod = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_mod)  # type: ignore[union-attr]
 
 parse_prompt_from_structured_output = _mod.parse_prompt_from_structured_output
+parse_structured_prompt_payload = _mod.parse_structured_prompt_payload
 
 
 class PromptOutputParserTest(unittest.TestCase):
@@ -58,6 +59,33 @@ class PromptOutputParserTest(unittest.TestCase):
             parse_prompt_from_structured_output(text),
             "2girls, street, day, year 2024\n| girl a, smile\n| girl b, smile"
         )
+
+    def test_parse_v3_payload_with_intent_and_continuity(self):
+        text = (
+            '{"version":3,"format":"single","intent":"selfie","continuity":"keep",'
+            '"global":["selfie","looking at viewer","black pantyhose"],'
+            '"people":[["smile"]]}'
+        )
+        payload = parse_structured_prompt_payload(text)
+        self.assertIsNotNone(payload)
+        self.assertEqual(payload.get("intent"), "selfie")
+        self.assertEqual(payload.get("continuity"), "keep")
+        self.assertEqual(
+            parse_prompt_from_structured_output(text),
+            "selfie, looking at viewer, black pantyhose, smile"
+        )
+
+    def test_parse_payload_from_json_with_noise(self):
+        text = (
+            'RESULT\n'
+            '{"version":3,"format":"multi","intent":"normal","continuity":"switch",'
+            '"global":["2girls","night"],"people":[["girl a"],["girl b"]]}'
+            '\nEND'
+        )
+        payload = parse_structured_prompt_payload(text)
+        self.assertIsNotNone(payload)
+        self.assertEqual(payload.get("format"), "multi")
+        self.assertEqual(payload.get("continuity"), "switch")
 
 
 if __name__ == "__main__":

@@ -21,7 +21,10 @@ from ..rules.selfie_rules import (
     merge_selfie_prompt,
 )
 from ..services.session_state import session_state
-from ..utils.prompt_output_parser import parse_prompt_from_structured_output
+from ..utils.prompt_output_parser import (
+    parse_prompt_from_structured_output,
+    parse_structured_prompt_payload,
+)
 from ..utils.prompt_postprocessor import (
     normalize_prompt_order,
     remove_selfie_appearance_tags,
@@ -42,6 +45,7 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.api_client = NaiWebClient(self)
+        self._last_structured_prompt_payload: Optional[Dict[str, Any]] = None
 
     async def execute(self) -> Tuple[bool, Optional[str], bool]:
         """执行 /nai 命令"""
@@ -69,8 +73,10 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
 
         logger.debug(f"{self.log_prefix} [LLM生图] 原始提示词: {generated_prompt}")
 
-        # 从 LLM 输出检测是否为自拍
-        is_selfie = detect_selfie_from_output(generated_prompt)
+        # 优先信任结构化输出中的意图字段，避免再由代码反向猜测
+        structured_payload = self._last_structured_prompt_payload or {}
+        structured_intent = str(structured_payload.get("intent", "") or "").strip().lower()
+        is_selfie = structured_intent == "selfie" or detect_selfie_from_output(generated_prompt)
 
         # 处理自拍模式（添加角色特征）
         selfie_base_prompt = generated_prompt
@@ -321,10 +327,14 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
         if not prompt:
             return ""
 
+        self._last_structured_prompt_payload = parse_structured_prompt_payload(prompt)
+
         parsed = parse_prompt_from_structured_output(prompt)
         if parsed:
             logger.debug(f"{self.log_prefix} [LLM生图] 结构化提示词解析命中（JSON->prompt），将跳过文本清洗")
             return parsed
+
+        self._last_structured_prompt_payload = None
 
         cleaned = prompt.strip()
 
