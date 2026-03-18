@@ -3,6 +3,4 @@
 
 from .prompt_rules import PROMPT_GENERATOR_TEMPLATE
 
-__all__ = [
-    "PROMPT_GENERATOR_TEMPLATE",
-]
+__all__ = ["PROMPT_GENERATOR_TEMPLATE"]

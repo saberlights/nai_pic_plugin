@@ -70,7 +70,7 @@ class SessionStateManager:
         # value = (prompt, request, timestamp)
         self._last_nai_context: Dict[str, Tuple[str, str, float]] = {}
 
-        # 上一轮自拍场景上下文（仅用于 bot 自拍/展示照的连续性）
+        # 上一轮自拍场景上下文（仅用于 bot 自拍/展示照连续性）
         # value = (prompt, request, scene_summary, anchor_data, timestamp)
         self._last_selfie_context: Dict[str, Tuple[str, str, str, Dict[str, List[str]], float]] = {}
 
@@ -184,11 +184,6 @@ class SessionStateManager:
         """
         获取指定会话选定的画师串内容
 
-        优先级：
-        1. 会话级别手动选择（/nai art 命令）
-        2. 配置文件 default_artist_preset（按名称或序号）
-        3. 第一个预设
-
         Args:
             platform: 平台标识
             chat_id: 会话ID
@@ -196,7 +191,7 @@ class SessionStateManager:
             get_config: 获取配置的函数
 
         Returns:
-            选定的画师串内容，未设置则返回配置默认或第一个预设
+            选定的画师串内容，未设置则返回第一个预设
         """
         # 根据模型确定配置节
         if "nai-diffusion-3" in model_name:
@@ -218,32 +213,47 @@ class SessionStateManager:
         if not artist_presets:
             return None
 
-        # 1. 优先使用会话级别手动选择
+        # 优先使用会话中手动切换的画师串
         key = self._make_key(platform, chat_id)
         if key in self._selected_artists:
             selected_index = self._selected_artists[key]
-            if 1 <= selected_index <= len(artist_presets):
-                return artist_presets[selected_index - 1]["prompt"]
+        else:
+            selected_index = self._resolve_default_artist_index(config_section, artist_presets, get_config)
 
-        # 2. 使用配置文件中的 default_artist_preset
-        default_preset = get_config(f"{config_section}.default_artist_preset", None)
-        if default_preset is not None:
-            # 按序号（整数）
-            if isinstance(default_preset, int):
-                if 1 <= default_preset <= len(artist_presets):
-                    return artist_presets[default_preset - 1]["prompt"]
-            # 按名称（字符串）
-            elif isinstance(default_preset, str) and default_preset:
-                for preset in artist_presets:
-                    if preset["name"] == default_preset:
-                        return preset["prompt"]
-                logger.warning(
-                    f"[nai_pic] default_artist_preset '{default_preset}' "
-                    f"在 {config_section}.artist_presets 中未找到，回退到第一个预设"
-                )
+        # 确保索引有效
+        if 1 <= selected_index <= len(artist_presets):
+            return artist_presets[selected_index - 1]["prompt"]
+        else:
+            return artist_presets[0]["prompt"] if artist_presets else None
 
-        # 3. 回退到第一个预设
-        return artist_presets[0]["prompt"]
+    def _resolve_default_artist_index(
+        self,
+        config_section: str,
+        artist_presets: List[Dict[str, str]],
+        get_config: Callable,
+    ) -> int:
+        """解析配置中的默认画师串，支持序号或名称。"""
+        default_value = get_config(f"{config_section}.default_artist_preset", "")
+        if default_value is None:
+            return 1
+
+        if isinstance(default_value, int):
+            return default_value if 1 <= default_value <= len(artist_presets) else 1
+
+        default_text = str(default_value).strip()
+        if not default_text:
+            return 1
+
+        if default_text.isdigit():
+            index = int(default_text)
+            return index if 1 <= index <= len(artist_presets) else 1
+
+        for index, preset in enumerate(artist_presets, 1):
+            if preset.get("name", "").strip() == default_text:
+                return index
+
+        logger.warning(f"[nai_pic] 默认画师串配置无效: {config_section}.default_artist_preset={default_text!r}，回退到第一个预设")
+        return 1
 
     @staticmethod
     def _parse_artist_presets(presets_raw: List) -> List[Dict[str, str]]:

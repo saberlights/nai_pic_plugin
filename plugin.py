@@ -116,9 +116,9 @@ class NaiPicPlugin(BasePlugin):
                 description="NAI V3 画师风格预设列表（可配置多个），每个预设包含 name（显示名称）和 prompt（画师串内容）"
             ),
             "default_artist_preset": ConfigField(
-                type=int,
-                default=1,
-                description="默认使用的画师串预设，支持序号（如 1）或预设名称（如 \"示例风格1\"）。不配置时默认使用第一个预设"
+                type=str,
+                default="",
+                description="NAI V3 默认画师风格预设，支持填写预设名称或序号；留空时默认使用第一个预设"
             ),
             "nai_artist_prompt": ConfigField(
                 type=str,
@@ -196,9 +196,9 @@ class NaiPicPlugin(BasePlugin):
                 description="NAI V4 画师风格预设列表（可配置多个），每个预设包含 name（显示名称）和 prompt（画师串内容）"
             ),
             "default_artist_preset": ConfigField(
-                type=int,
-                default=1,
-                description="默认使用的画师串预设，支持序号（如 1）或预设名称（如 \"风格组合1\"）。不配置时默认使用第一个预设"
+                type=str,
+                default="",
+                description="NAI V4 默认画师风格预设，支持填写预设名称或序号；留空时默认使用第一个预设"
             ),
             "nai_artist_prompt": ConfigField(
                 type=str,
@@ -276,9 +276,9 @@ class NaiPicPlugin(BasePlugin):
                 description="NAI V4.5 画师风格预设列表（可配置多个），每个预设包含 name（显示名称）和 prompt（画师串内容）"
             ),
             "default_artist_preset": ConfigField(
-                type=int,
-                default=1,
-                description="默认使用的画师串预设，支持序号（如 1）或预设名称（如 \"风格示例1\"）。不配置时默认使用第一个预设"
+                type=str,
+                default="",
+                description="NAI V4.5 默认画师风格预设，支持填写预设名称或序号；留空时默认使用第一个预设"
             ),
             "nai_artist_prompt": ConfigField(
                 type=str,
@@ -420,17 +420,12 @@ class NaiPicPlugin(BasePlugin):
             "output_format": ConfigField(
                 type=str,
                 default="json",
-                description="提示词生成输出格式：json=结构化输出（默认，支持多人|分段与意图/连续性元数据），text=纯提示词"
+                description="提示词生成输出格式：json=结构化输出（默认，支持多人分段与意图元数据），text=纯提示词"
             ),
             "selfie_appearance_policy": ConfigField(
                 type=str,
                 default="auto",
-                description="自拍外貌标签策略：auto=默认保留程序固定自拍锚点，并在用户未指定外貌时移除LLM随机发色/发型/瞳色；never=始终移除（除非用户明确指定）；keep=完全保留LLM输出"
-            ),
-            "enable_programmatic_fallbacks": ConfigField(
-                type=bool,
-                default=False,
-                description="是否启用程序化提示词兜底修正（如自拍穿搭继承、显式重点前置）。默认关闭，优先依赖 LLM 决策。"
+                description="自拍外貌标签策略：auto=仅在用户未指定外貌时移除LLM随机发色/发型/瞳色（尽量保留配置中的自拍特征），never=始终移除（除非用户明确指定），keep=不移除"
             ),
             "enforce_tag_order": ConfigField(
                 type=bool,
@@ -450,7 +445,7 @@ class NaiPicPlugin(BasePlugin):
             "prompt_template": ConfigField(
                 type=str,
                 default="",
-                description="自定义提示词生成模板，支持<<USER_REQUEST>>和<<SELFIE_HINT>>占位符"
+                description="自定义提示词生成模板，支持<<USER_REQUEST>>、<<SELFIE_HINT>>、<<CURRENT_TIME_CONTEXT>>、<<SELFIE_SCENE_CONTEXT>>占位符"
             ),
             "inherit_ttl": ConfigField(
                 type=int,

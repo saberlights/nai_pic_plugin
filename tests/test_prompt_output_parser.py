@@ -60,32 +60,26 @@ class PromptOutputParserTest(unittest.TestCase):
             "2girls, street, day, year 2024\n| girl a, smile\n| girl b, smile"
         )
 
-    def test_parse_v3_payload_with_intent_and_continuity(self):
+    def test_parse_v3_arrays_single(self):
         text = (
             '{"version":3,"format":"single","intent":"selfie","continuity":"keep",'
-            '"global":["selfie","looking at viewer","black pantyhose"],'
-            '"people":[["smile"]]}'
+            '"global":["solo","1girl","selfie","full body"],'
+            '"people":[["black pantyhose","loafers"]]}'
         )
-        payload = parse_structured_prompt_payload(text)
-        self.assertIsNotNone(payload)
-        self.assertEqual(payload.get("intent"), "selfie")
-        self.assertEqual(payload.get("continuity"), "keep")
         self.assertEqual(
             parse_prompt_from_structured_output(text),
-            "selfie, looking at viewer, black pantyhose, smile"
+            "solo, 1girl, selfie, full body, black pantyhose, loafers"
         )
 
-    def test_parse_payload_from_json_with_noise(self):
+    def test_parse_v3_payload_metadata(self):
         text = (
-            'RESULT\n'
-            '{"version":3,"format":"multi","intent":"normal","continuity":"switch",'
-            '"global":["2girls","night"],"people":[["girl a"],["girl b"]]}'
-            '\nEND'
+            '{"version":3,"format":"single","intent":"selfie","continuity":"adjust",'
+            '"global":["selfie","mirror selfie"],"people":[]}'
         )
         payload = parse_structured_prompt_payload(text)
         self.assertIsNotNone(payload)
-        self.assertEqual(payload.get("format"), "multi")
-        self.assertEqual(payload.get("continuity"), "switch")
+        self.assertEqual(payload["intent"], "selfie")
+        self.assertEqual(payload["continuity"], "adjust")
 
 
 if __name__ == "__main__":

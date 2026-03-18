@@ -4,6 +4,7 @@
 """
 import re
 import time
+from datetime import datetime
 from typing import Tuple, Optional, Dict, Any
 
 from src.plugin_system.base.base_command import BaseCommand
@@ -21,10 +22,7 @@ from ..rules.selfie_rules import (
     merge_selfie_prompt,
 )
 from ..services.session_state import session_state
-from ..utils.prompt_output_parser import (
-    parse_prompt_from_structured_output,
-    parse_structured_prompt_payload,
-)
+from ..utils.prompt_output_parser import parse_prompt_from_structured_output
 from ..utils.prompt_postprocessor import (
     normalize_prompt_order,
     remove_selfie_appearance_tags,
@@ -40,12 +38,11 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
 
     command_name = "nai_draw"
     command_description = "使用自然语言描述生成图片，例如：/nai 画一张初音未来"
-    command_pattern = r"(?:.*，说：\s*)?/nai\s+(?!on$|off$|st$|sp$|set\b|art\b|artgen\b|artr$|artfix\b|artpv\b|size\b|help$|pt\s|nsfw\b|撤回$)(?P<description>.+)$"
+    command_pattern = r"(?:.*，说：\s*)?/nai\s+(?!on$|off$|st$|sp$|set\b|art\b|artgen\b|artr$|artfix\b|size\b|help$|pt\s|nsfw\b|撤回$)(?P<description>.+)$"
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.api_client = NaiWebClient(self)
-        self._last_structured_prompt_payload: Optional[Dict[str, Any]] = None
 
     async def execute(self) -> Tuple[bool, Optional[str], bool]:
         """执行 /nai 命令"""
@@ -73,10 +70,8 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
 
         logger.debug(f"{self.log_prefix} [LLM生图] 原始提示词: {generated_prompt}")
 
-        # 优先信任结构化输出中的意图字段，避免再由代码反向猜测
-        structured_payload = self._last_structured_prompt_payload or {}
-        structured_intent = str(structured_payload.get("intent", "") or "").strip().lower()
-        is_selfie = structured_intent == "selfie" or detect_selfie_from_output(generated_prompt)
+        # 从 LLM 输出检测是否为自拍
+        is_selfie = detect_selfie_from_output(generated_prompt)
 
         # 处理自拍模式（添加角色特征）
         selfie_base_prompt = generated_prompt
@@ -196,7 +191,7 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
                 await self.send_text("API 返回了无效的数据")
                 return False, "数据格式错误", True
         else:
-            await self.send_text(f"生成图片失败：{result[:150]}")
+            await self.send_text(f"生成图片失败：{result}")
             return False, f"生成失败: {result}", True
 
     async def _generate_prompt_with_llm(
@@ -216,7 +211,7 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
             nsfw_filter_enabled = False
 
         # 根据过滤状态与输出格式选择模板
-        output_format = (generator_config.get("output_format") or "text").strip().lower()
+        output_format = (generator_config.get("output_format") or "json").strip().lower()
         if nsfw_filter_enabled:
             if output_format == "json":
                 from ..rules.prompt_rules import SFW_PROMPT_GENERATOR_JSON_TEMPLATE
@@ -273,10 +268,36 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
         # /nai 命令不需要提示词继承和自定义系统提示词，清除这些占位符
         prompt = template.replace("<<CUSTOM_SYSTEM_PROMPT>>", "").strip()
         prompt = prompt.replace("<<PREVIOUS_PROMPT>>", "").strip()
-        prompt = prompt.replace("<<CURRENT_TIME_CONTEXT>>", "").strip()
+        prompt = prompt.replace("<<CURRENT_TIME_CONTEXT>>", self._build_current_time_context()).strip()
         prompt = prompt.replace("<<SELFIE_HINT>>", selfie_hint).strip()
+        prompt = prompt.replace("<<SELFIE_SCENE_CONTEXT>>", "").strip()
         prompt = prompt.replace("<<USER_REQUEST>>", original_request.strip() or "N/A")
         return prompt
+
+    def _build_current_time_context(self) -> str:
+        """为命令式生图提供轻量时间上下文。"""
+        now = datetime.now()
+        hour = now.hour
+        if 5 <= hour < 8:
+            period = "清晨"
+        elif 8 <= hour < 11:
+            period = "上午"
+        elif 11 <= hour < 14:
+            period = "中午"
+        elif 14 <= hour < 17:
+            period = "下午"
+        elif 17 <= hour < 19:
+            period = "傍晚"
+        elif 19 <= hour < 23:
+            period = "夜晚"
+        else:
+            period = "深夜"
+        return (
+            "<current_time_context>\n"
+            f"当前本地时间：{now.strftime('%Y-%m-%d %H:%M:%S')}（{period}）。\n"
+            "仅在用户未明确指定时，用于补全时间、光线和背景氛围。\n"
+            "</current_time_context>"
+        )
 
     def _resolve_llm_model_config(self, preferred_name: str):
         """获取可用的 LLM 模型配置"""
@@ -327,14 +348,10 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
         if not prompt:
             return ""
 
-        self._last_structured_prompt_payload = parse_structured_prompt_payload(prompt)
-
         parsed = parse_prompt_from_structured_output(prompt)
         if parsed:
             logger.debug(f"{self.log_prefix} [LLM生图] 结构化提示词解析命中（JSON->prompt），将跳过文本清洗")
             return parsed
-
-        self._last_structured_prompt_payload = None
 
         cleaned = prompt.strip()
 

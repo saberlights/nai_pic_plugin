@@ -11,6 +11,7 @@
 - 处理 NSFW 过滤
 """
 import re
+from datetime import datetime
 from typing import Optional, Dict, Any, Callable
 
 from src.common.logger import get_logger
@@ -18,10 +19,7 @@ from src.plugin_system import llm_api
 
 from .session_state import session_state
 from ..rules.selfie_rules import get_selfie_hint
-from ..utils.prompt_output_parser import (
-    parse_prompt_from_structured_output,
-    parse_structured_prompt_payload,
-)
+from ..utils.prompt_output_parser import parse_prompt_from_structured_output
 from ..utils.prompt_postprocessor import normalize_prompt_order
 
 logger = get_logger("nai_pic_plugin")
@@ -49,7 +47,6 @@ class PromptGeneratorService:
         """
         self.get_config = get_config
         self.log_prefix = log_prefix
-        self.last_structured_payload: Optional[Dict[str, Any]] = None
 
     async def generate_prompt(
         self,
@@ -95,7 +92,7 @@ class PromptGeneratorService:
                     PROMPT_GENERATOR_JSON_TEMPLATE,
                     SFW_PROMPT_GENERATOR_JSON_TEMPLATE,
                 )
-                output_format = (generator_config.get("output_format") or "text").strip().lower()
+                output_format = (generator_config.get("output_format") or "json").strip().lower()
                 if nsfw_filter_enabled:
                     prompt_template = (
                         SFW_PROMPT_GENERATOR_JSON_TEMPLATE
@@ -175,10 +172,36 @@ class PromptGeneratorService:
 
         prompt = template.replace("<<CUSTOM_SYSTEM_PROMPT>>", custom_system_prompt).strip()
         prompt = prompt.replace("<<PREVIOUS_PROMPT>>", "").strip()
-        prompt = prompt.replace("<<CURRENT_TIME_CONTEXT>>", "").strip()
+        prompt = prompt.replace("<<CURRENT_TIME_CONTEXT>>", self._build_current_time_context()).strip()
         prompt = prompt.replace("<<SELFIE_HINT>>", selfie_hint).strip()
+        prompt = prompt.replace("<<SELFIE_SCENE_CONTEXT>>", "").strip()
         prompt = prompt.replace("<<USER_REQUEST>>", request.strip() or "N/A")
         return prompt
+
+    def _build_current_time_context(self) -> str:
+        """提供轻量时间上下文，避免把模板占位符原样传给 LLM。"""
+        now = datetime.now()
+        hour = now.hour
+        if 5 <= hour < 8:
+            period = "清晨"
+        elif 8 <= hour < 11:
+            period = "上午"
+        elif 11 <= hour < 14:
+            period = "中午"
+        elif 14 <= hour < 17:
+            period = "下午"
+        elif 17 <= hour < 19:
+            period = "傍晚"
+        elif 19 <= hour < 23:
+            period = "夜晚"
+        else:
+            period = "深夜"
+        return (
+            "<current_time_context>\n"
+            f"当前本地时间：{now.strftime('%Y-%m-%d %H:%M:%S')}（{period}）。\n"
+            "仅在用户未明确指定时，用于补全时间、光线和背景氛围。\n"
+            "</current_time_context>"
+        )
 
     def _resolve_model_config(self, preferred_name: str):
         """
@@ -249,15 +272,11 @@ class PromptGeneratorService:
         if not prompt:
             return ""
 
-        self.last_structured_payload = parse_structured_prompt_payload(prompt)
-
         # 优先尝试解析结构化 JSON 输出（成功则不再做文本清洗，避免误伤多人 | 分段）
         parsed = parse_prompt_from_structured_output(prompt)
         if parsed:
             logger.debug(f"{self.log_prefix} 结构化提示词解析命中（JSON->prompt），将跳过文本清洗")
             return parsed
-
-        self.last_structured_payload = None
 
         cleaned = prompt.strip()
 

@@ -73,7 +73,7 @@ def parse_structured_prompt_payload(text: str) -> Optional[Dict[str, Any]]:
         version = obj.get("version")
         has_v2_fields = isinstance(obj.get("global"), list)
         has_v1_prompt = isinstance(obj.get("prompt"), str) and obj.get("prompt", "").strip()
-        if version == 2 or (isinstance(version, int) and version >= 2):
+        if version == 2 or version == 3 or (isinstance(version, int) and version >= 2):
             if has_v2_fields or has_v1_prompt:
                 return obj
             continue
@@ -138,7 +138,7 @@ def parse_prompt_from_structured_output(text: str) -> Optional[str]:
         return None
 
     version = obj.get("version")
-    if version == 2 or (isinstance(version, int) and version >= 2):
+    if version == 2 or version == 3 or (isinstance(version, int) and version >= 2):
         rendered = _render_from_v2(obj)
         if rendered:
             return rendered
