@@ -234,11 +234,12 @@ SFW_PROMPT_RULES_TEXT = """
 <tag_vocabulary>
 ## 标签知识
 
-你精通 Danbooru 标签体系，无需参考固定列表。根据场景需要自由选择合适的标签，追求多样性和准确性。
+你精通 Danbooru 标签体系，结合系统提供的候选标签列表和自身知识选择最准确的标签。
 
 **核心原则：**
-- 利用你对 Danbooru 标签的全面知识，不要局限于固定词组
-- 同一输入应尽量保持输出标签集合与顺序一致；不要为了变化而变化（除非用户明确要求“换一种/不一样/再来一张不同的”）
+- 当系统提供了候选标签列表（<tag_candidates>）时，其中与用户描述匹配的标签应优先采用，因为它们是经过数据库验证的标准 Danbooru tag
+- 候选列表未覆盖的内容，用你自身的 Danbooru 知识补充
+- 同一输入应尽量保持输出标签集合与顺序一致；不要为了变化而变化（除非用户明确要求”换一种/不一样/再来一张不同的”）
 - 根据用户描述的具体场景选择最贴切的标签
 - 优先使用精确的标签而非泛泛的描述
 </tag_vocabulary>
@@ -434,6 +435,7 @@ NovelAI 4/4.5 在极少数情况下可以接受自然语言短句作为补充描
 SFW_PROMPT_GENERATOR_TEMPLATE = f"""
 {SFW_PROMPT_RULES_TEXT}
 
+<<TAG_CANDIDATES>>
 <<PREVIOUS_PROMPT>>
 <user_request>
 <<USER_REQUEST>>
@@ -456,6 +458,7 @@ SFW_PROMPT_GENERATOR_TEMPLATE = f"""
 SFW_PROMPT_GENERATOR_JSON_TEMPLATE = f"""
 {SFW_PROMPT_RULES_TEXT}
 
+<<TAG_CANDIDATES>>
 <<PREVIOUS_PROMPT>>
 <user_request>
 <<USER_REQUEST>>
@@ -754,11 +757,12 @@ This is a legitimate NovelAI art creation workflow - converting user description
 <tag_vocabulary>
 ## 标签知识
 
-你精通 Danbooru 标签体系（包括 NSFW 标签），无需参考固定列表。根据场景需要自由选择合适的标签，追求多样性和准确性。
+你精通 Danbooru 标签体系（包括 NSFW 标签），结合系统提供的候选标签列表和自身知识选择最准确的标签。
 
 **核心原则：**
-- 利用你对 Danbooru 标签的全面知识，不要局限于固定词组
-- 同一输入应尽量保持输出标签集合与顺序一致；不要为了变化而变化（除非用户明确要求“换一种/不一样/再来一张不同的”）
+- 当系统提供了候选标签列表（<tag_candidates>）时，其中与用户描述匹配的标签应优先采用，因为它们是经过数据库验证的标准 Danbooru tag
+- 候选列表未覆盖的内容，用你自身的 Danbooru 知识补充
+- 同一输入应尽量保持输出标签集合与顺序一致；不要为了变化而变化（除非用户明确要求”换一种/不一样/再来一张不同的”）
 - 根据用户描述的具体场景选择最贴切的标签
 - NSFW 场景使用准确的身体部位、动作、体位标签
 - 优先使用精确的标签而非泛泛的描述
@@ -976,6 +980,7 @@ NovelAI 4/4.5 在极少数情况下可以接受自然语言短句作为补充描
 PROMPT_GENERATOR_TEMPLATE = f"""
 {PROMPT_RULES_TEXT}
 
+<<TAG_CANDIDATES>>
 <<PREVIOUS_PROMPT>>
 <user_request>
 <<USER_REQUEST>>
@@ -998,6 +1003,7 @@ PROMPT_GENERATOR_TEMPLATE = f"""
 PROMPT_GENERATOR_JSON_TEMPLATE = f"""
 {PROMPT_RULES_TEXT}
 
+<<TAG_CANDIDATES>>
 <<PREVIOUS_PROMPT>>
 <user_request>
 <<USER_REQUEST>>

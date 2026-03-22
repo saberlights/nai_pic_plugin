@@ -24,6 +24,7 @@ from ..rules.selfie_rules import (
     merge_selfie_prompt,
 )
 from ..services.session_state import session_state
+from ..services.tag_retriever import get_tag_retriever
 from ..services.prompt_memory import (
     render_previous_prompt_block,
     load_last_context_from_action_records,
@@ -61,12 +62,13 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
     # 动作参数定义
     default_action_parameters = {
         "description": (
-            "画面内容描述。"
-            "用户直接描述了画面时，保留原始描述（如'初音未来，制服，白丝'）；"
-            "用户请求依赖上下文时（如'自拍'、'拍一张'、'再来一张'），"
-            "结合对话上下文给出完整描述（如你刚说在洗澡，用户说'自拍'→'在浴室洗澡时的自拍'）；"
-            "当用户想看你的样子（如'看看黑丝'、'穿JK给我看'），"
-            "必须体现是你本人出镜（如'看看你穿黑丝的样子'、'你穿JK的自拍'）"
+            "画面内容的关键词列表，用空格分隔，只输出有视觉意义的核心词。"
+            "例如：用户说'穿着黑丝制服在卧室被大叔后入'→'黑丝 制服 卧室 大叔 后入'；"
+            "用户说'初音未来穿泳装在海边'→'初音未来 泳装 海边'；"
+            "用户请求依赖上下文时（如'自拍'、'再来一张'），"
+            "结合对话上下文补全关键词（如你刚说在洗澡→'浴室 洗澡 自拍'）；"
+            "当用户想看你的样子（如'看看黑丝'），加上'自拍'关键词（如'黑丝 自拍'）。"
+            "禁止输出完整句子，禁止输出'正在'、'非常'、'一个'等虚词"
         ),
         "size": "图片尺寸（默认从配置获取）",
     }
@@ -422,6 +424,10 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
             last_selfie_anchor=last_selfie_anchor,
         )
 
+        # Tag 检索增强
+        tag_candidates_text = await self._retrieve_tag_candidates(raw_request)
+        prompt = prompt.replace("<<TAG_CANDIDATES>>", tag_candidates_text).strip()
+
         model_config = self._resolve_llm_model_config(generator_config.get("model_name", ""))
         if not model_config:
             logger.error(f"{self.log_prefix} [LLM触发] 未找到可用的LLM模型，提示词生成失败")
@@ -515,6 +521,32 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
         prompt = prompt.replace("<<SELFIE_HINT>>", selfie_hint).strip()
         prompt = prompt.replace("<<SELFIE_SCENE_CONTEXT>>", selfie_scene_context).strip()
         return prompt
+
+    async def _retrieve_tag_candidates(self, request_text: str) -> str:
+        """检索候选 danbooru tag"""
+        try:
+            retriever_config = self.get_config("tag_retriever", None) or {}
+            if not retriever_config.get("enabled", False):
+                return ""
+            retriever = get_tag_retriever(
+                enabled=True,
+                top_k=retriever_config.get("top_k", 20),
+                min_score=retriever_config.get("min_score", 0.3),
+            )
+            if not retriever:
+                return ""
+            results = await retriever.retrieve(
+                query=request_text,
+                top_k=retriever_config.get("top_k", 20),
+                min_score=retriever_config.get("min_score", 0.3),
+            )
+            if results:
+                tag_list = ", ".join(f"{r['cn']}→{r['tag']}({r['score']})" for r in results)
+                logger.info(f"{self.log_prefix} Tag 检索增强：找到 {len(results)} 个候选 tag: {tag_list}")
+                return retriever.format_candidates(results)
+        except Exception as e:
+            logger.warning(f"{self.log_prefix} Tag 检索失败，跳过: {e}")
+        return ""
 
     def _build_current_time_context(self) -> str:
         """构建当前时间段提示，帮助 LLM 在未指定时补全光线与时间氛围。"""

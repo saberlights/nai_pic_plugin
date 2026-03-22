@@ -11,6 +11,10 @@ __pycache__/
 # 生成的图片
 generated_images/
 
+# 生成的数据文件
+data/danbooru_tags.json
+data/tag_embeddings.npy
+
 # IDE
 .vscode/
 .idea/

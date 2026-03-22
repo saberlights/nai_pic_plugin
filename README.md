@@ -36,6 +36,7 @@
 - ✅ 支持自定义尺寸（竖图、方图或具体尺寸）
 - ✅ **自动撤回功能**（可配置延迟时间，支持 `/nai on/off` 控制）
 - ✅ **上下文管理**：智能判断是否继承上一轮提示词
+- ✅ **Tag 检索增强**：使用 embedding 模型从 5000+ 条 Danbooru 中文对照表中检索候选标签，辅助 LLM 选用更准确的标准 tag
 - ❌ **不支持图生图**（仅文生图）
 
 ## 安装
@@ -253,6 +254,27 @@ slow_threshold = 30.0
 - `auto`（默认）：自拍模式下，自动移除 LLM 随机生成的外貌标签（发色、发型、瞳色等），保留配置文件中的角色特征。用户明确描述外貌时不移除
 - `never`：移除所有外貌标签（包括配置文件中的），仅保留动作、场景、氛围等
 - `keep`：保留所有外貌标签，不做处理
+
+### Tag 检索增强配置
+
+插件支持使用 embedding 模型从 Danbooru 中文 tag 对照表（5481 条）中检索与用户描述相关的候选标签，注入 LLM 提示模板辅助生成更准确的 tag。
+
+**首次使用准备**：
+1. 运行 `python core/utils/tag_data_builder.py` 从 xlsx 对照表生成 `data/danbooru_tags.json`
+2. 确保 `model_config.toml` 中已配置 embedding 模型（如 `bge-m3`）
+3. 首次启用时会自动调用 embedding API 为所有 tag 构建向量缓存（约 5481 次调用，需几分钟），之后从缓存加载
+
+```toml
+[tag_retriever]
+enabled = true       # 是否启用 tag 检索增强
+top_k = 40           # 返回候选 tag 数量
+min_score = 0.3      # 最低相似度阈值
+```
+
+**工作原理**：
+- 用户输入的关键词被拆分后，每个关键词并发调用 embedding API 进行语义检索
+- 检索结果合并去重后，以 `<tag_candidates>` 块注入 LLM 提示模板
+- LLM 根据上下文从候选中选择最精确的标准 Danbooru tag，而非自行翻译
 
 ## 使用方法
 
@@ -626,9 +648,11 @@ nai_pic_plugin/
     ├── services/          # 会话状态管理服务
     │   ├── session_state.py
     │   ├── prompt_generator.py
+    │   ├── tag_retriever.py           # Danbooru Tag 检索增强服务
     │   └── image_generator.py
     └── utils/             # 工具类
         ├── danbooru_api.py            # Danbooru API 集成
+        ├── tag_data_builder.py        # xlsx→JSON tag 数据构建工具
         ├── image_url_helper.py        # 图片处理工具
         ├── prompt_output_parser.py    # LLM 结构化输出解析
         └── prompt_postprocessor.py    # 提示词后处理（排序、外貌移除）
@@ -643,6 +667,14 @@ GPL-v3.0-or-later
 Rabbit
 
 ## 更新日志
+
+### v1.5.0 (2026-03-23)
+- 新增 **Danbooru Tag 检索增强**：使用 embedding 模型从 5481 条中文 tag 对照表中语义检索候选标签
+- 新增 `tag_retriever.py`：Tag 检索服务，支持并发 embedding + 余弦相似度检索 + 向量缓存
+- 新增 `tag_data_builder.py`：xlsx 对照表转 JSON 工具
+- 新增 `[tag_retriever]` 配置节：enabled/top_k/min_score
+- 优化提示词模板：新增 `<tag_candidates>` 候选标签注入，引导 LLM 优先使用标准 Danbooru tag
+- 优化 action description 生成：输出关键词形式，提升检索精度
 
 ### v1.4.0 (2025-02-03)
 - 新增自拍模式增强：支持 24 种触发关键词、5 种自拍类型（手机前置、镜子、高角度、低角度、合照）

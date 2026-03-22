@@ -44,6 +44,7 @@ class NaiPicPlugin(BasePlugin):
         "prompt_generator.custom_model": "自定义LLM模型配置（支持多模型、负载均衡）",
         "tagger": "图片打标配置（/打标）",
         "custom_prompt": "自定义系统提示词配置",
+        "tag_retriever": "Danbooru Tag 检索增强配置",
     }
 
     # 配置Schema
@@ -505,6 +506,23 @@ class NaiPicPlugin(BasePlugin):
                 type=str,
                 default="",
                 description="自定义系统提示词，会添加到 LLM 提示词规则的最前面，可用于自定义额外指导或规则"
+            ),
+        },
+        "tag_retriever": {
+            "enabled": ConfigField(
+                type=bool,
+                default=False,
+                description="是否启用 Danbooru Tag 检索增强（使用 embedding 模型从 tag 对照表中检索相关标签注入 LLM 提示模板）"
+            ),
+            "top_k": ConfigField(
+                type=int,
+                default=40,
+                description="检索返回的候选 tag 数量"
+            ),
+            "min_score": ConfigField(
+                type=float,
+                default=0.3,
+                description="最低相似度阈值（低于此分数的不返回）"
             ),
         },
     }

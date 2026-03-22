@@ -18,6 +18,7 @@ from src.common.logger import get_logger
 from src.plugin_system import llm_api
 
 from .session_state import session_state
+from .tag_retriever import get_tag_retriever
 from ..rules.selfie_rules import get_selfie_hint
 from ..utils.prompt_output_parser import parse_prompt_from_structured_output
 from ..utils.prompt_postprocessor import normalize_prompt_order
@@ -113,6 +114,10 @@ class PromptGeneratorService:
         # 渲染模板
         prompt = self._render_template(prompt_template, request_text, is_selfie)
 
+        # Tag 检索增强：在 LLM 调用前检索相关候选 tag
+        tag_candidates_text = await self._retrieve_tag_candidates(request_text)
+        prompt = prompt.replace("<<TAG_CANDIDATES>>", tag_candidates_text).strip()
+
         # 获取 LLM 模型配置
         model_config = self._resolve_model_config(generator_config.get("model_name", ""))
         if not model_config:
@@ -154,6 +159,46 @@ class PromptGeneratorService:
     def _get_generator_config(self) -> Dict[str, Any]:
         """获取提示词生成器配置，兼容新旧配置节"""
         return self.get_config("prompt_generator", None) or {}
+
+    async def _retrieve_tag_candidates(self, request_text: str) -> str:
+        """
+        使用 tag_retriever 检索与用户请求相关的候选 danbooru tag。
+
+        Returns:
+            格式化的候选 tag 文本块，未启用或失败时返回空字符串
+        """
+        try:
+            retriever_config = self.get_config("tag_retriever", None) or {}
+            enabled = retriever_config.get("enabled", False)
+            if not enabled:
+                return ""
+
+            retriever = get_tag_retriever(
+                enabled=True,
+                top_k=retriever_config.get("top_k", 20),
+                min_score=retriever_config.get("min_score", 0.3),
+            )
+            if retriever is None:
+                return ""
+
+            results = await retriever.retrieve(
+                query=request_text,
+                top_k=retriever_config.get("top_k", 20),
+                min_score=retriever_config.get("min_score", 0.3),
+            )
+
+            if not results:
+                return ""
+
+            tag_list = ", ".join(f"{r['cn']}→{r['tag']}({r['score']})" for r in results)
+            logger.info(
+                f"{self.log_prefix} Tag 检索增强：为 '{request_text[:30]}' "
+                f"找到 {len(results)} 个候选 tag: {tag_list}"
+            )
+            return retriever.format_candidates(results)
+        except Exception as e:
+            logger.warning(f"{self.log_prefix} Tag 检索失败，跳过: {e}")
+            return ""
 
     def _render_template(
         self,
