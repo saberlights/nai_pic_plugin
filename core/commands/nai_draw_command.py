@@ -41,6 +41,10 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
     command_description = "使用自然语言描述生成图片，例如：/nai 画一张初音未来"
     command_pattern = r"(?:.*，说：\s*)?/nai\s+(?!on$|off$|st$|sp$|set\b|art\b|artgen\b|artr$|artfix\b|size\b|help$|pt\s|nsfw\b|撤回$)(?P<description>.+)$"
 
+    # 类变量：记录最近的随机场景，避免重复
+    _recent_random_scenes: list = []
+    _MAX_RECENT_SCENES = 5
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.api_client = NaiWebClient(self)
@@ -332,8 +336,8 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
 必须包含以下维度各至少一个关键词：
 1. 人物构成（人数、性别）
 2. 服装：从全品类中随机选——制服、民族服饰、运动装、礼服、工装、角色扮演、泳装、内衣、便服、亚文化风格、宗教服饰、历史服饰、舞台装、特殊材质服装等，也可以是半脱、凌乱穿着、全裸等状态，拒绝每次都选常见款式
-3. 动作或姿势：必须是具体体位或动作（如骑乘、后入、口交、M字开脚），禁止"身体纠缠"等模糊描述
-4. 表情（具体表情词，如潮红、吐舌、翻白眼）
+3. 动作或姿势：必须是具体体位或动作，禁止"身体纠缠"等模糊描述
+4. 表情：具体表情词，每次换不同的
 5. 视角（POV、俯视、仰视、从后面等）
 6. 场景地点
 7. 光线或时间氛围
@@ -344,6 +348,11 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
 1女 旗袍半脱 骑乘 潮红 仰视 神社 月光
 
 核心原则：最大化多样性，大胆发散，避免千篇一律。每次生成必须在题材、服装、动作、场景上都与常见组合拉开距离，追求意想不到的搭配。{selfie_extra}"""
+
+        # 注入最近生成历史，防止重复
+        if NaiDrawCommand._recent_random_scenes:
+            history = "\n".join(NaiDrawCommand._recent_random_scenes)
+            random_prompt += f"\n\n以下是最近已生成过的内容，禁止与它们重复或相似，必须在动作、表情、服装上都不同：\n{history}"
 
         random_config = self._get_random_scene_config()
         model_config = self._resolve_llm_model_config(
@@ -370,7 +379,15 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
 
         # 清理：取第一行有效内容
         lines = [l.strip() for l in response.strip().split("\n") if l.strip()]
-        return lines[0] if lines else None
+        result = lines[0] if lines else None
+
+        # 记录到历史，防止后续重复
+        if result:
+            NaiDrawCommand._recent_random_scenes.append(result)
+            if len(NaiDrawCommand._recent_random_scenes) > NaiDrawCommand._MAX_RECENT_SCENES:
+                NaiDrawCommand._recent_random_scenes.pop(0)
+
+        return result
 
     def _build_current_time_context(self) -> str:
         """为命令式生图提供轻量时间上下文。"""
