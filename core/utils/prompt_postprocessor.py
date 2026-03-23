@@ -39,6 +39,51 @@ _CAMERA_TAGS = {
 }
 
 
+def _split_prompt_segments(prompt: str) -> List[str]:
+    """兼容旧的多行 `|` 分段和新的单行 `base | char1 | char2` 格式。"""
+    text = (prompt or "").strip()
+    if not text:
+        return []
+
+    if "\n" in text:
+        return [segment.strip() for segment in text.split("\n") if segment.strip()]
+
+    if "|" in text:
+        parts = [part.strip() for part in text.split("|")]
+        segments: List[str] = []
+        for index, part in enumerate(parts):
+            if not part:
+                continue
+            if index == 0:
+                segments.append(part)
+            else:
+                segments.append(f"| {part}")
+        return segments
+
+    return [text]
+
+
+def _join_prompt_segments(lines: List[str], original_prompt: str) -> str:
+    """保持与输入一致的多人分隔风格。"""
+    if not lines:
+        return ""
+
+    if "\n" in (original_prompt or ""):
+        return "\n".join(lines).strip()
+
+    if "|" in (original_prompt or ""):
+        normalized: List[str] = []
+        for index, line in enumerate(lines):
+            raw = line.strip()
+            if index == 0:
+                normalized.append(raw.lstrip("|").strip())
+            else:
+                normalized.append(raw.lstrip("|").strip())
+        return " | ".join([part for part in normalized if part]).strip()
+
+    return "\n".join(lines).strip()
+
+
 def user_mentions_appearance(raw_request: str) -> bool:
     """粗略判断用户是否明确提及外貌（发色/发型/眼睛等）。"""
     if not raw_request:
@@ -145,7 +190,7 @@ def remove_selfie_appearance_tags(prompt: str) -> str:
 
         return False
 
-    lines = prompt.split("\n")
+    lines = _split_prompt_segments(prompt)
     out_lines: List[str] = []
     for line in lines:
         raw = line.strip()
@@ -166,7 +211,7 @@ def remove_selfie_appearance_tags(prompt: str) -> str:
         else:
             out_lines.append(joined)
 
-    return "\n".join(out_lines).strip()
+    return _join_prompt_segments(out_lines, prompt)
 
 
 def normalize_prompt_order(prompt: str) -> str:
@@ -179,7 +224,7 @@ def normalize_prompt_order(prompt: str) -> str:
     if not prompt or not prompt.strip():
         return prompt
 
-    lines = prompt.split("\n")
+    lines = _split_prompt_segments(prompt)
     out_lines: List[str] = []
     for line in lines:
         raw = line.strip()
@@ -222,4 +267,4 @@ def normalize_prompt_order(prompt: str) -> str:
         else:
             out_lines.append(joined)
 
-    return "\n".join(out_lines).strip()
+    return _join_prompt_segments(out_lines, prompt)

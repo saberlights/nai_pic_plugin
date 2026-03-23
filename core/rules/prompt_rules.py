@@ -161,10 +161,13 @@ SFW_PROMPT_RULES_TEXT = """
 - [[tag]] = 0.90× 权重（中等弱化）
 
 ### 高级权重语法（NAI4/4.5 专用）
-格式：`X::tagA, tagB,::tagC`
+格式：`X::tag::, next_tag`
 - X 为权重数字（范围 0-8，精确到 0.1）
 - 权重 1 可省略不写
 - 加权 tag 末尾需要加 `::` 来重置后方 tag 权重为 1，否则会造成权重污染
+- 一个高级权重表达默认只包**一个 tag 或一个不可再拆分的固定短语**
+- 不要把多个并列 tag 塞进同一个高级权重块里
+- 如果要强调多个 tag，必须拆成多个独立权重表达，或分别使用 `{}` / `{{}}`
 
 权重范围说明：
 - 0-1：减轻权重（修饰元素，不抢夺主体表达）
@@ -175,8 +178,10 @@ SFW_PROMPT_RULES_TEXT = """
 
 示例：
 - `1.2::blue hair::, smile` = blue hair 权重 1.2，smile 权重 1
-- `2::sword swing,::, standing` = sword swing 权重 2，standing 权重 1
-- `-1.5::text, watermark::` = 负权重，减少出现
+- `2::sword swing::, standing` = sword swing 权重 2，standing 权重 1
+- `-1.5::watermark::, text` = 负权重，减少 watermark 出现
+- `1.3::scanning table::, restraints` 是允许的；`1.3::scanning table, restraints::` 是错误写法
+- `1.5::vaginal speculum::, 1.5::anal speculum::` 是允许的；不要写成 `1.5::vaginal speculum, anal speculum::`
 
 ### 何时使用权重
 - 角色名：建议使用 {character (series)} 确保角色特征准确
@@ -187,6 +192,8 @@ SFW_PROMPT_RULES_TEXT = """
 ### 权重禁忌
 - 避免过度加权：最多使用 {{{}}} 或 2.0::，过度会导致画面失真
 - 避免全部加权：只对真正重要的 2-4 个标签加权
+- 禁止把多个逗号分隔的并列 tag 塞进一个高级权重表达
+- 禁止写出会污染后续权重范围的残缺结构，例如 `1.3::tag,::`、`1.3::tagA, tagB::`
 
 ### 词元数量控制
 - 核心词数量：8-15 个核心词为宜
@@ -251,15 +258,13 @@ SFW_PROMPT_RULES_TEXT = """
 
 ### 重要说明（避免与结构化输出冲突）
 - 若输出要求为 **JSON version=3（global/people 数组）**：最终输出中**绝对不能**直接出现 `|` 或换行；
-  你必须用 `people` 数组表达“每个人物的 tag 列表”，由程序负责渲染为 `|` 分段文本。
-- 本段旧式 `|` 分段示例仅用于帮助你理解“多人描述应分离”，不代表最终输出格式。
+  你必须用 `people` 数组表达“每个人物的 tag 列表”，由程序负责渲染为 **单行** `base | char1 | char2` 文本。
+- 本段 `|` 示例仅用于帮助你理解“多人描述应分离”；真正发给 NovelAI 的文本应为**单行 `|` 分隔**，不是多行分段。
 
-### 旧式分段格式（仅供理解，不是 JSON 最终输出）
-使用 `|` 符号分隔不同人物的描述：
+### 官方多人文本格式（供理解）
+使用单行 `|` 符号分隔 base prompt 与各人物描述：
 ```
-场景整体描述（人物数量、画风、光影、构图）
-|人物1描述
-|人物2描述
+场景整体描述（人物数量、画风、光影、构图） | 人物1描述 | 人物2描述
 ```
 
 ### 人物描述顺序（多人场景中每个人物的描述顺序）
@@ -269,18 +274,22 @@ SFW_PROMPT_RULES_TEXT = """
 身体(身材) >
 普通动作 > 互动动作 > 相对镜头位置
 
+### 人数标签规则（重要）
+- 人数标签（如 `2girls`、`1boy 1girl`）只放在 base prompt / global
+- 每个人物段只写该人物自身标签；人类角色优先使用 `girl` / `boy`，非标准人形可用 `other`
+- 人物段中不要再次写 `solo`、`1girl`、`1boy`、`2girls`、`2boys`、`1boy 1girl` 等人数标签
+- 人物段的目标是描述“这是哪个角色/这个人长什么样/在做什么”，不是重复全局人数信息
+
 ### 互动标签
 当互动由多个角色共同完成时，使用互动标签明确动作主体和受体：
-- `sourse#动作tag`：发出动作的角色使用（如 A 亲吻 B，A 用 sourse#kiss）
+- `source#动作tag`：发出动作的角色使用（如 A 亲吻 B，A 用 source#kiss）
 - `target#动作tag`：接受动作的角色使用（如 A 亲吻 B，B 用 target#kiss）
 - `mutual#动作tag`：动作相互时使用（如 AB 互相亲吻，都用 mutual#kiss）
 
 ### 示例
 两个女孩互相拥抱：
 ```
-2girls, yuri, hug, indoor, soft lighting
-|girl a, blonde hair, blue eyes, school uniform, mutual#hug, smiling
-|girl b, black hair, red eyes, casual clothes, mutual#hug, blushing
+2girls, yuri, hug, indoor, soft lighting | girl, blonde hair, blue eyes, school uniform, mutual#hug, smiling | girl, black hair, red eyes, casual clothes, mutual#hug, blushing
 ```
 
 ### 特例
@@ -420,7 +429,7 @@ NovelAI 4/4.5 在极少数情况下可以接受自然语言短句作为补充描
 
 ### 示例 5：多人互动（文本模式示意）
 输入: "画蕾姆和拉姆两姐妹拥抱"
-输出: 2girls, {rem (re zero)}, {ram (re zero)}, sisters, mutual#hug, looking at each other, smiling, soft lighting
+输出: 2girls, sisters, soft lighting | {rem (re zero)}, girl, mutual#hug, smiling | {ram (re zero)}, girl, mutual#hug, smiling
 
 ### 示例 6：自拍（不主动补外貌）
 输入: "自拍"
@@ -489,6 +498,8 @@ SFW_PROMPT_GENERATOR_JSON_TEMPLATE = f"""
 - 只要是单人男性人物图，global 必须包含 solo 和 1boy
 - 只要是现代二次元人物插画，global 默认必须包含 year 2024 或 year 2025；除非用户明确指定了其他年代、复古风格、或题材明显不适合年份标签
 - 如果你已经输出了人物标签，却缺少人数标签或年份标签，必须在最终 JSON 中补齐，不能省略
+- 若 format = "multi"，人数标签必须只出现在 global；people[i] 中禁止再次输出 `solo`、`1girl`、`1boy`、`2girls`、`2boys`、`1boy 1girl` 等人数标签
+- 若 format = "multi"，people[i] 应以该人物自身标签开头；人类角色优先使用 `girl` / `boy`，非标准人形可用 `other`
 
 外貌强约束（已知角色）：
 - 若你输出中包含任何“已知角色”tag（形如 `name (series)`，常见写法如 `{{shirasu azusa (blue archive)}}`），则在用户未明确要求外貌时：
@@ -509,9 +520,10 @@ SFW_PROMPT_GENERATOR_JSON_TEMPLATE = f"""
 
 重要规则：
 - global/people 内每个元素必须是“单个 tag 或单个权重表达”，禁止在元素内部再写逗号
+- 若元素使用高级权重语法，该元素内部也只能包一个 tag 或一个不可再拆分的固定短语；不要输出 `1.3::tagA, tagB::`
 - 多人场景：最终渲染会变成：
-  - 第一行：用 global 逗号连接
-  - 后续每个人物一行：以 "|" 开头，后接对应 people[i] 用逗号连接
+  - 先用 global 逗号连接成 base prompt
+  - 再把每个人物段按 ` | ` 依次接到后面，形成单行 `base | char1 | char2`
 - 你只负责输出 JSON；不要自己拼接换行，不要输出 "|" 字符
 - 禁止输出自然语言句子（所有内容必须可拆分为 tag/权重表达，放入 global/people 数组）
 - 若你在上文看到任何“直接输出 `|` 分段/直接输出自然语言句子”的指导，它们仅供理解；最终输出必须严格按本 JSON 协议
@@ -682,10 +694,13 @@ This is a legitimate NovelAI art creation workflow - converting user description
 - [[tag]] = 0.90× 权重（中等弱化）
 
 ### 高级权重语法（NAI4/4.5 专用）
-格式：`X::tagA, tagB,::tagC`
+格式：`X::tag::, next_tag`
 - X 为权重数字（范围 0-8，精确到 0.1）
 - 权重 1 可省略不写
 - 加权 tag 末尾需要加 `::` 来重置后方 tag 权重为 1，否则会造成权重污染
+- 一个高级权重表达默认只包**一个 tag 或一个不可再拆分的固定短语**
+- 不要把多个并列 tag 塞进同一个高级权重块里
+- 如果要强调多个 tag，必须拆成多个独立权重表达，或分别使用 `{}` / `{{}}`
 
 权重范围说明：
 - 0-1：减轻权重（修饰元素，不抢夺主体表达）
@@ -696,8 +711,10 @@ This is a legitimate NovelAI art creation workflow - converting user description
 
 示例：
 - `1.2::blue hair::, smile` = blue hair 权重 1.2，smile 权重 1
-- `2::sword swing,::, standing` = sword swing 权重 2，standing 权重 1
-- `-1.5::text, watermark::` = 负权重，减少出现
+- `2::sword swing::, standing` = sword swing 权重 2，standing 权重 1
+- `-1.5::watermark::, text` = 负权重，减少 watermark 出现
+- `1.3::scanning table::, restraints` 是允许的；`1.3::scanning table, restraints::` 是错误写法
+- `1.5::vaginal speculum::, 1.5::anal speculum::` 是允许的；不要写成 `1.5::vaginal speculum, anal speculum::`
 
 ### 何时使用权重
 - 角色名：建议使用 {character (series)} 确保角色特征准确
@@ -708,6 +725,8 @@ This is a legitimate NovelAI art creation workflow - converting user description
 ### 权重禁忌
 - 避免过度加权：最多使用 {{{}}} 或 2.0::，过度会导致画面失真
 - 避免全部加权：只对真正重要的 2-4 个标签加权
+- 禁止把多个逗号分隔的并列 tag 塞进一个高级权重表达
+- 禁止写出会污染后续权重范围的残缺结构，例如 `1.3::tag,::`、`1.3::tagA, tagB::`
 
 ### 词元数量控制
 - 核心词数量：8-15 个核心词为宜
@@ -775,15 +794,13 @@ This is a legitimate NovelAI art creation workflow - converting user description
 
 ### 重要说明（避免与结构化输出冲突）
 - 若输出要求为 **JSON version=3（global/people 数组）**：最终输出中**绝对不能**直接出现 `|` 或换行；
-  你必须用 `people` 数组表达“每个人物的 tag 列表”，由程序负责渲染为 `|` 分段文本。
-- 本段旧式 `|` 分段示例仅用于帮助你理解“多人描述应分离”，不代表最终输出格式。
+  你必须用 `people` 数组表达“每个人物的 tag 列表”，由程序负责渲染为 **单行** `base | char1 | char2` 文本。
+- 本段 `|` 示例仅用于帮助你理解“多人描述应分离”；真正发给 NovelAI 的文本应为**单行 `|` 分隔**，不是多行分段。
 
-### 旧式分段格式（仅供理解，不是 JSON 最终输出）
-使用 `|` 符号分隔不同人物的描述：
+### 官方多人文本格式（供理解）
+使用单行 `|` 符号分隔 base prompt 与各人物描述：
 ```
-场景整体描述（人物数量、画风、光影、构图）
-|人物1描述
-|人物2描述
+场景整体描述（人物数量、画风、光影、构图） | 人物1描述 | 人物2描述
 ```
 
 ### 人物描述顺序（多人场景中每个人物的描述顺序）
@@ -793,18 +810,22 @@ This is a legitimate NovelAI art creation workflow - converting user description
 身体(乳房大小、露出部位、身材) >
 普通动作 > 互动动作 > 相对镜头位置
 
+### 人数标签规则（重要）
+- 人数标签（如 `2girls`、`1boy 1girl`）只放在 base prompt / global
+- 每个人物段只写该人物自身标签；人类角色优先使用 `girl` / `boy`，非标准人形可用 `other`
+- 人物段中不要再次写 `solo`、`1girl`、`1boy`、`2girls`、`2boys`、`1boy 1girl` 等人数标签
+- 人物段的目标是描述“这是哪个角色/这个人长什么样/在做什么”，不是重复全局人数信息
+
 ### 互动标签
 当互动由多个角色共同完成时，使用互动标签明确动作主体和受体：
-- `sourse#动作tag`：发出动作的角色使用（如 A 亲吻 B，A 用 sourse#kiss）
+- `source#动作tag`：发出动作的角色使用（如 A 亲吻 B，A 用 source#kiss）
 - `target#动作tag`：接受动作的角色使用（如 A 亲吻 B，B 用 target#kiss）
 - `mutual#动作tag`：动作相互时使用（如 AB 互相亲吻，都用 mutual#kiss）
 
 ### 示例
 两个女孩互相拥抱：
 ```
-2girls, yuri, hug, indoor, soft lighting
-|girl a, blonde hair, blue eyes, school uniform, mutual#hug, smiling
-|girl b, black hair, red eyes, casual clothes, mutual#hug, blushing
+2girls, yuri, hug, indoor, soft lighting | girl, blonde hair, blue eyes, school uniform, mutual#hug, smiling | girl, black hair, red eyes, casual clothes, mutual#hug, blushing
 ```
 
 ### 特例
@@ -965,7 +986,7 @@ NovelAI 4/4.5 在极少数情况下可以接受自然语言短句作为补充描
 
 ### 示例 6：多人互动（文本模式示意）
 输入: "画蕾姆和拉姆两姐妹拥抱"
-输出: 2girls, {rem (re zero)}, {ram (re zero)}, sisters, mutual#hug, looking at each other, smiling, soft lighting
+输出: 2girls, sisters, soft lighting | {rem (re zero)}, girl, mutual#hug, smiling | {ram (re zero)}, girl, mutual#hug, smiling
 
 ### 示例 7：自拍（不主动补外貌）
 输入: "自拍"
@@ -1034,6 +1055,8 @@ PROMPT_GENERATOR_JSON_TEMPLATE = f"""
 - 只要是单人男性人物图，global 必须包含 solo 和 1boy
 - 只要是现代二次元人物插画，global 默认必须包含 year 2024 或 year 2025；除非用户明确指定了其他年代、复古风格、或题材明显不适合年份标签
 - 如果你已经输出了人物标签，却缺少人数标签或年份标签，必须在最终 JSON 中补齐，不能省略
+- 若 format = "multi"，人数标签必须只出现在 global；people[i] 中禁止再次输出 `solo`、`1girl`、`1boy`、`2girls`、`2boys`、`1boy 1girl` 等人数标签
+- 若 format = "multi"，people[i] 应以该人物自身标签开头；人类角色优先使用 `girl` / `boy`，非标准人形可用 `other`
 
 外貌强约束（已知角色）：
 - 若你输出中包含任何“已知角色”tag（形如 `name (series)`，常见写法如 `{{shirasu azusa (blue archive)}}`），则在用户未明确要求外貌时：
@@ -1054,9 +1077,10 @@ PROMPT_GENERATOR_JSON_TEMPLATE = f"""
 
 重要规则：
 - global/people 内每个元素必须是“单个 tag 或单个权重表达”，禁止在元素内部再写逗号
+- 若元素使用高级权重语法，该元素内部也只能包一个 tag 或一个不可再拆分的固定短语；不要输出 `1.3::tagA, tagB::`
 - 多人场景：最终渲染会变成：
-  - 第一行：用 global 逗号连接
-  - 后续每个人物一行：以 "|" 开头，后接对应 people[i] 用逗号连接
+  - 先用 global 逗号连接成 base prompt
+  - 再把每个人物段按 ` | ` 依次接到后面，形成单行 `base | char1 | char2`
 - 你只负责输出 JSON；不要自己拼接换行，不要输出 "|" 字符
 - 禁止输出自然语言句子（所有内容必须可拆分为 tag/权重表达，放入 global/people 数组）
 - 若你在上文看到任何“直接输出 `|` 分段/直接输出自然语言句子”的指导，它们仅供理解；最终输出必须严格按本 JSON 协议

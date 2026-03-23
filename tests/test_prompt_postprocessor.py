@@ -38,10 +38,20 @@ class PromptPostprocessorTest(unittest.TestCase):
         out = remove_selfie_appearance_tags(s)
         self.assertEqual(out, "2girls, street, year 2024\n| girl a, smile\n| girl b, smile")
 
+    def test_remove_selfie_appearance_multi_single_line_pipe(self):
+        s = "2girls, street, year 2024 | girl a, black hair, smile | girl b, blue eyes, smile"
+        out = remove_selfie_appearance_tags(s)
+        self.assertEqual(out, "2girls, street, year 2024 | girl a, smile | girl b, smile")
+
     def test_normalize_prompt_order_year_last(self):
         s = "year 2024, smile, solo, pov, 1girl"
         out = normalize_prompt_order(s)
         self.assertEqual(out, "pov, solo, 1girl, smile, year 2024")
+
+    def test_normalize_prompt_order_multi_single_line_pipe(self):
+        s = "2girls, year 2024, street | smile, black hair | looking at viewer, blue eyes"
+        out = normalize_prompt_order(s)
+        self.assertEqual(out, "2girls, street, year 2024 | smile, black hair | looking at viewer, blue eyes")
 
 
 if __name__ == "__main__":
