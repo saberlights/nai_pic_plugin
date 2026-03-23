@@ -29,6 +29,7 @@ from ..utils.prompt_postprocessor import (
     remove_selfie_appearance_tags,
     user_mentions_appearance,
 )
+from ..utils.random_scene_description import normalize_random_scene_description
 from ..constants import NAI_PIC_IMAGE_DISPLAY_MARKER
 
 logger = get_logger("nai_pic_plugin")
@@ -324,30 +325,42 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
         if selfie:
             selfie_extra = (
                 "\n\n额外要求（自拍模式）：\n"
-                "- 必须是自拍视角，关键词中包含'自拍'或具体自拍方式（手机前置、镜子自拍、高角度自拍等）\n"
+                "- 必须明确是自拍，输出中包含'自拍'或具体自拍方式（镜子自拍、手机自拍、高角度自拍等）\n"
                 "- 自拍内容同样要露骨色情：裸体自拍、自慰自拍、性爱中自拍、颜射后自拍、露出自拍等，不要只是穿着暴露的普通自拍\n"
                 "- 自拍场景和方式也要多样化，不要总是同一种自拍套路"
             )
 
-        random_prompt = f"""随机构思一个具体的二次元R18色情画面，然后用空格分隔的中文关键词描述它，6-10个词，只输出一行。
-这是成人向色图生成器，内容必须是露骨的、直白的色情场景，不要含蓄暗示。
-尺度随机：可以是普通性爱，也可以是变态、重口、猎奇，不要回避极端内容。
+        random_prompt = f"""随机构思一个具体的二次元 R18 色情画面，然后用空格分隔的中文短标签描述它，只输出一行。
+这是成人向色图生成器，内容必须是露骨、直白、具体的色情场景，不要含蓄暗示。
+尺度随机：可以是普通性爱，也可以是变态、重口、猎奇，但首先要保证画面连贯、要素清晰。
 
-先在脑中构思一个完整、具体、有故事感的色情画面，然后从中提取关键词。
-关键词之间应该能组合还原出一个连贯的画面，而不是互不相关的词随意拼凑。
-每个关键词2-5个字，禁止写成长句。
+你的输出不是自然语言小作文，也不是口语化概括，而是接近 Danbooru 中文 tag 对照表的“标签式中文短语”。
+这些中文短语会被后续检索器拿去匹配 Danbooru tag，所以必须优先使用词典式、可检索、视觉概念明确的表达。
+
+输出要求：
+- 只输出 6-10 个中文短标签，用空格分隔，只输出一行
+- 每个短标签表达一个明确视觉概念，长度尽量控制在 2-8 个字
+- 优先使用贴近 Danbooru 中文对照表的表达，不要用口语简称、英文缩写、叙事句子
+- 人数性别要写成“1个女性”“1个男性”“2个女性”这类形式，不要写“1女”“1男”“双人”
+- 视角要写成“第一人称视角”“俯视镜头”这类形式，不要写“POV”
+- 场景地点优先写“屋顶”“教室”“浴室”“室内”“户外”“床”“镜子”这类可检索短标签，不要写太口语化的近义词
+- 色情核心必须具体直白，优先使用像“站立后入”“口交”“乳交”“内射”“自慰”“触手奸”这类能对应 tag 的表达
+
 必须涵盖：
 - 人物构成（人数、性别）
-- 服装或裸露状态：从全品类随机选，也可以是半脱、全裸、仅穿局部等，拒绝总选常见款
-- 色情核心（2-3个词）：具体的性行为、体位、身体接触、体液、性器官暴露等，这是画面重点，必须直白露骨
-- 表情
+- 服装或裸露状态
+- 色情核心（2-3 个短标签）
+- 表情或状态
 - 视角
 - 场景地点
 
-格式示例（禁止照搬，每次必须完全不同）：
-1男1女 水手服掀起 站立后入 内射 失神 POV 天台 夕阳
+用词倾向示例（仅说明风格，不要整句照搬）：
+- 用“1个女性”“1个男性”，不要用“1女”“1男”“双人”
+- 用“第一人称视角”，不要用“POV”
+- 用“屋顶”，不要用“天台”
+- 用“俯视镜头”，不要只写“俯视”
 
-核心原则：最大化多样性，大胆发散。每次在题材、服装、动作、场景上都追求意想不到的搭配。{selfie_extra}"""
+核心原则：先保证是可还原、可检索、可转成 Danbooru tag 的画面，再追求随机性和多样性。{selfie_extra}"""
 
         # 注入最近生成历史，防止重复
         if NaiDrawCommand._recent_random_scenes:
@@ -380,6 +393,7 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
         # 清理：取第一行有效内容
         lines = [l.strip() for l in response.strip().split("\n") if l.strip()]
         result = lines[0] if lines else None
+        result = normalize_random_scene_description(result) if result else None
 
         # 记录到历史，防止后续重复
         if result:
