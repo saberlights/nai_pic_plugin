@@ -42,6 +42,7 @@ class NaiPicPlugin(BasePlugin):
         "prompt_show": "提示词显示配置",
         "prompt_generator": "提示词生成配置",
         "prompt_generator.custom_model": "自定义LLM模型配置（支持多模型、负载均衡）",
+        "random_scene": "随机场景生成配置（/nai 随机）",
         "tagger": "图片打标配置（/打标）",
         "custom_prompt": "自定义系统提示词配置",
         "tag_retriever": "Danbooru Tag 检索增强配置",
@@ -463,6 +464,23 @@ class NaiPicPlugin(BasePlugin):
                 },
                 description="自定义模型配置（可选），model_list 中的模型名称必须是系统 model_config 中已定义的模型"
             )
+        },
+        "random_scene": {
+            "model_name": ConfigField(
+                type=str,
+                default="",
+                description="随机场景生成使用的LLM模型代号，留空则回退到 prompt_generator 配置"
+            ),
+            "temperature": ConfigField(
+                type=float,
+                default=1.0,
+                description="随机场景生成LLM的温度设置"
+            ),
+            "max_tokens": ConfigField(
+                type=int,
+                default=200,
+                description="随机场景生成LLM响应的最大token"
+            ),
         },
         "tagger": {
             "enabled": ConfigField(

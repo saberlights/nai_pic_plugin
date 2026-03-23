@@ -324,23 +324,29 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
                 "- 自拍场景和方式也要多样化，不要总是同一种自拍套路"
             )
 
-        random_prompt = f"""随机生成一组二次元NSFW画面的中文关键词，空格分隔，6-10个词，只输出一行关键词。
+        random_prompt = f"""随机生成一组二次元R18色情画面的中文关键词，空格分隔，6-10个词，只输出一行关键词。
+内容必须是明确的色情/性行为场景，可以是普通、变态、重口等任意尺度。
 
 每个关键词2-5个字，像"黑丝""教室""俯视"这样的短词，禁止写成描述性长句。
 每个关键词必须是具体可画的视觉元素，禁止抽象形容词。
 必须包含以下维度各至少一个关键词：
 1. 人物构成（人数、性别）
 2. 服装：从全品类中随机选——制服、民族服饰、运动装、礼服、工装、角色扮演、泳装、内衣、便服、亚文化风格、宗教服饰、历史服饰、舞台装、特殊材质服装等，也可以是半脱、凌乱穿着、全裸等状态，拒绝每次都选常见款式
-3. 动作或姿势：大胆发散，避免千篇一律
-4. 表情
+3. 动作或姿势：必须是具体体位或动作（如骑乘、后入、口交、M字开脚），禁止"身体纠缠"等模糊描述
+4. 表情（具体表情词，如潮红、吐舌、翻白眼）
 5. 视角（POV、俯视、仰视、从后面等）
 6. 场景地点
 7. 光线或时间氛围
 
-核心原则：最大化多样性。每次生成必须在题材、服装、动作、场景上都与常见组合拉开距离，追求意想不到的搭配。{selfie_extra}"""
+每个词必须是独立的视觉元素，禁止输出修饰性细节词（如"皮肤汗珠""嘴角口水"）。
 
-        generator_config = self._get_prompt_generator_config()
-        model_config = self._resolve_llm_model_config(generator_config.get("model_name", ""))
+格式示例（禁止照搬内容，每次必须完全不同）：
+1女 旗袍半脱 骑乘 潮红 仰视 神社 月光
+
+核心原则：最大化多样性，大胆发散，避免千篇一律。每次生成必须在题材、服装、动作、场景上都与常见组合拉开距离，追求意想不到的搭配。{selfie_extra}"""
+
+        random_config = self._get_random_scene_config()
+        model_config = self._resolve_llm_model_config(random_config.get("model_name", ""))
         if not model_config:
             return None
 
@@ -349,8 +355,8 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
                 prompt=random_prompt,
                 model_config=model_config,
                 request_type="nai_pic_plugin.random_scene",
-                temperature=generator_config.get("temperature", 1.0),
-                max_tokens=generator_config.get("max_tokens", 200),
+                temperature=random_config.get("temperature", 1.0),
+                max_tokens=random_config.get("max_tokens", 200),
             )
         except Exception as e:
             logger.error(f"{self.log_prefix} 随机场景生成失败: {e}")
@@ -505,6 +511,17 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
     def _get_prompt_generator_config(self) -> Dict[str, Any]:
         """获取提示词生成器配置"""
         return self.get_config("prompt_generator", None) or {}
+
+    def _get_random_scene_config(self) -> Dict[str, Any]:
+        """获取随机场景生成配置，未配置时回退到 prompt_generator"""
+        random_config = self.get_config("random_scene", None) or {}
+        if not random_config:
+            # 回退：使用 prompt_generator 配置但覆盖默认值
+            fallback = dict(self._get_prompt_generator_config())
+            fallback.setdefault("temperature", 1.0)
+            fallback.setdefault("max_tokens", 200)
+            return fallback
+        return random_config
 
     def _process_api_response(self, result: str) -> Optional[str]:
         """处理 API 响应"""
