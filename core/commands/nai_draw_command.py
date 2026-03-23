@@ -346,7 +346,10 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
 核心原则：最大化多样性，大胆发散，避免千篇一律。每次生成必须在题材、服装、动作、场景上都与常见组合拉开距离，追求意想不到的搭配。{selfie_extra}"""
 
         random_config = self._get_random_scene_config()
-        model_config = self._resolve_llm_model_config(random_config.get("model_name", ""))
+        model_config = self._resolve_llm_model_config(
+            random_config.get("model_name", ""),
+            override_config=random_config,
+        )
         if not model_config:
             return None
 
@@ -394,9 +397,25 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
             "</current_time_context>"
         )
 
-    def _resolve_llm_model_config(self, preferred_name: str):
-        """获取可用的 LLM 模型配置"""
-        # 首先检查是否有自定义模型配置
+    def _resolve_llm_model_config(self, preferred_name: str, override_config: Dict[str, Any] = None):
+        """获取可用的 LLM 模型配置
+
+        Args:
+            preferred_name: 优先使用的模型名
+            override_config: 覆盖配置，提供时跳过 prompt_generator.custom_model
+        """
+        # 如果有覆盖配置且指定了 model_name，直接按名称查找系统模型
+        if override_config and override_config.get("model_name"):
+            models = llm_api.get_available_models()
+            if models:
+                name = override_config["model_name"]
+                config = models.get(name)
+                if config:
+                    logger.info(f"{self.log_prefix} 使用指定模型: {name}")
+                    return config
+                logger.warning(f"{self.log_prefix} 指定模型 {name} 不可用，回退到默认逻辑")
+
+        # 检查 prompt_generator 的自定义模型配置
         generator_config = self._get_prompt_generator_config()
         custom_model = generator_config.get("custom_model")
 
