@@ -326,6 +326,7 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
 
         random_prompt = f"""随机生成一组二次元NSFW画面的中文关键词，空格分隔，6-10个词，只输出一行关键词。
 
+每个关键词2-5个字，像"黑丝""教室""俯视"这样的短词，禁止写成描述性长句。
 每个关键词必须是具体可画的视觉元素，禁止抽象形容词。
 必须包含以下维度各至少一个关键词：
 1. 人物构成（人数、性别）
