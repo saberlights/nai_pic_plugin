@@ -159,6 +159,8 @@ class NaiAdminControlCommand(BaseCommand):
 【生图命令】
 /nai <描述> - 使用自然语言生成图片
   示例：/nai 画一张初音未来
+/nai 随机 - 随机生成一张NSFW图片
+/nai 随机自拍 - 随机生成一张NSFW自拍图片
 /nai0 <英文标签> - 直接使用英文标签生成图片
   示例：/nai0 1girl, hatsune miku, smile
 

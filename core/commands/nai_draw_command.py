@@ -61,6 +61,15 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
             await self.send_text("请输入你想画的内容，例如：/nai 画一张初音未来")
             return False, "未提供描述", True
 
+        # 随机模式：LLM 先生成随机场景关键词
+        is_random_selfie = description in ("随机自拍", "random selfie")
+        if description in ("随机", "random", "rand") or is_random_selfie:
+            description = await self._generate_random_description(selfie=is_random_selfie)
+            if not description:
+                await self.send_text("随机场景生成失败，请稍后再试~")
+                return False, "随机生成失败", True
+            logger.info(f"{self.log_prefix} [LLM生图] 随机场景: {description}")
+
         # 使用 LLM 生成提示词（自拍意图由 LLM 自行判断）
         generated_prompt = await self._generate_prompt_with_llm(description)
 
@@ -304,6 +313,59 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
         except Exception as e:
             logger.warning(f"{self.log_prefix} Tag 检索失败，跳过: {e}")
         return ""
+
+    async def _generate_random_description(self, selfie: bool = False) -> Optional[str]:
+        """LLM 生成随机场景关键词"""
+        selfie_extra = ""
+        if selfie:
+            selfie_extra = (
+                "\n- 场景必须是自拍视角（手机前置、镜子自拍、高角度自拍等）"
+                "\n- 关键词中必须包含'自拍'，人物是你自己在拍照"
+                "\n- 可以是各种色情自拍：裸体自拍、自慰自拍、做爱时自拍、事后自拍、露出自拍、厕所自拍等"
+            )
+
+        random_prompt = f"""你是一个随机二次元NSFW画面关键词生成器。生成一组关键词描述一个具体的色情/性感画面。
+
+要求：
+- 输出空格分隔的中文关键词，6-10个词即可
+- 每个关键词必须是具体可画的视觉元素（人物特征、服装、动作、物品、场景、光线），禁止输出抽象形容（如"氛围感"、"气息"、"感觉"）
+- 必须覆盖：人物数量和性别（如1女、1男1女、2女）、服装或裸露状态（1-2个）、色情动作或姿势（1个）、表情（1个）、视角（如POV、俯视、仰视、从后面）、场景（1个）、光线（1个）
+- 题材必须是NSFW色情内容，覆盖范围要广：自慰、做爱、口交、足交、乳交、后入、骑乘、颜射、触手、调教、SM、绳缚、拘束、露出、痴汉、百合、群交、公厕、媚药、催眠、堕落、凌辱等
+- 禁止连续生成相似题材，每次必须和上次完全不同{selfie_extra}
+- 只输出一行关键词，不要任何其他内容
+
+示例（每行是一个独立场景）：
+1女 双马尾 黑丝 教室 掀裙 自慰 害羞 俯视 黄昏
+1男1女 猫耳内衣 后入 翘臀 沉迷 POV 卧室 月光
+1女 全裸 绳缚 蒙眼 跪趴 恐惧 仰视 地下室 红灯
+2女 百合 剪刀腿 潮红 喘息 俯视 床上 柔光
+1男1女 白丝JK 站立后入 扶墙 咬唇 从后面 厕所隔间
+1女 触手 拘束 悬空 全裸 失神 正面 粘液 发光
+1男1女 旗袍 骑乘 汗水 陶醉 从下面 沙发 昏暗"""
+
+        generator_config = self._get_prompt_generator_config()
+        model_config = self._resolve_llm_model_config(generator_config.get("model_name", ""))
+        if not model_config:
+            return None
+
+        try:
+            success, response, _, _ = await llm_api.generate_with_model(
+                prompt=random_prompt,
+                model_config=model_config,
+                request_type="nai_pic_plugin.random_scene",
+                temperature=generator_config.get("temperature", 1.0),
+                max_tokens=generator_config.get("max_tokens", 200),
+            )
+        except Exception as e:
+            logger.error(f"{self.log_prefix} 随机场景生成失败: {e}")
+            return None
+
+        if not success or not response:
+            return None
+
+        # 清理：取第一行有效内容
+        lines = [l.strip() for l in response.strip().split("\n") if l.strip()]
+        return lines[0] if lines else None
 
     def _build_current_time_context(self) -> str:
         """为命令式生图提供轻量时间上下文。"""
