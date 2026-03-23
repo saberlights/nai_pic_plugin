@@ -466,11 +466,6 @@ class NaiPicPlugin(BasePlugin):
             )
         },
         "random_scene": {
-            "model_name": ConfigField(
-                type=str,
-                default="",
-                description="随机场景生成使用的LLM模型代号，留空则回退到 prompt_generator 配置"
-            ),
             "temperature": ConfigField(
                 type=float,
                 default=1.0,
@@ -480,6 +475,16 @@ class NaiPicPlugin(BasePlugin):
                 type=int,
                 default=200,
                 description="随机场景生成LLM响应的最大token"
+            ),
+            "custom_model": ConfigField(
+                type=dict,
+                default={
+                    "model_list": [],
+                    "max_tokens": 200,
+                    "temperature": 1.0,
+                    "slow_threshold": 30.0
+                },
+                description="随机场景生成自定义模型配置（可选），model_list 中的模型名称必须是系统 model_config 中已定义的模型"
             ),
         },
         "tagger": {

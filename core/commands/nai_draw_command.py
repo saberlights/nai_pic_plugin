@@ -347,7 +347,7 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
 
         random_config = self._get_random_scene_config()
         model_config = self._resolve_llm_model_config(
-            random_config.get("model_name", ""),
+            "",
             override_config=random_config,
         )
         if not model_config:
@@ -402,18 +402,28 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
 
         Args:
             preferred_name: 优先使用的模型名
-            override_config: 覆盖配置，提供时跳过 prompt_generator.custom_model
+            override_config: 覆盖配置，提供时优先使用其中的 custom_model
         """
-        # 如果有覆盖配置且指定了 model_name，直接按名称查找系统模型
-        if override_config and override_config.get("model_name"):
-            models = llm_api.get_available_models()
-            if models:
-                name = override_config["model_name"]
-                config = models.get(name)
-                if config:
-                    logger.info(f"{self.log_prefix} 使用指定模型: {name}")
-                    return config
-                logger.warning(f"{self.log_prefix} 指定模型 {name} 不可用，回退到默认逻辑")
+        from src.config.api_ada_configs import TaskConfig
+
+        # 如果有覆盖配置，优先使用其 custom_model
+        if override_config:
+            custom_model = override_config.get("custom_model")
+            if custom_model and isinstance(custom_model, dict):
+                model_list = custom_model.get("model_list", [])
+                if model_list:
+                    try:
+                        custom_task_config = TaskConfig(
+                            model_list=model_list if isinstance(model_list, list) else [model_list],
+                            max_tokens=custom_model.get("max_tokens", 1024),
+                            temperature=custom_model.get("temperature", 0.3),
+                            slow_threshold=custom_model.get("slow_threshold", 30.0),
+                            selection_strategy="random"
+                        )
+                        logger.info(f"{self.log_prefix} 使用自定义模型配置: {model_list}")
+                        return custom_task_config
+                    except Exception as e:
+                        logger.warning(f"{self.log_prefix} 自定义模型配置创建失败: {e}，回退到默认逻辑")
 
         # 检查 prompt_generator 的自定义模型配置
         generator_config = self._get_prompt_generator_config()
