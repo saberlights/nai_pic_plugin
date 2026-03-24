@@ -206,6 +206,151 @@ class AutoRecallMixinUtilsTest(unittest.TestCase):
         self.assertEqual(resolved_id, "msg_formal")
         self.assertIsNone(placeholder_id)
 
+    def test_select_best_message_id_without_send_timestamp_should_pick_latest_by_time(self):
+        host = _DummyRecallHost()
+        msgs = [
+            {
+                "message_id": "msg_old",
+                "display_message": NAI_PIC_IMAGE_DISPLAY_MARKER,
+                "processed_plain_text": "[imageurl:file:///old.png]",
+                "time": 100.10,
+            },
+            {
+                "message_id": "msg_latest",
+                "display_message": NAI_PIC_IMAGE_DISPLAY_MARKER,
+                "processed_plain_text": "[imageurl:file:///latest.png]",
+                "time": 100.90,
+            },
+        ]
+
+        resolved_id, placeholder_id = host._select_best_message_id(
+            msgs=msgs,
+            require_marker=True,
+            bot_account="",
+            send_timestamp=None,
+            timestamp_tolerance=0.2,
+        )
+
+        self.assertEqual(resolved_id, "msg_latest")
+        self.assertIsNone(placeholder_id)
+
+    def test_select_best_message_id_without_send_timestamp_should_fallback_to_latest_formal_bot_image(self):
+        host = _DummyRecallHost()
+        msgs = [
+            {
+                "message_id": "send_api_old",
+                "display_message": NAI_PIC_IMAGE_DISPLAY_MARKER,
+                "processed_plain_text": "[imageurl:file:///placeholder.png]",
+                "time": 100.10,
+            },
+            {
+                "message_id": "msg_latest_formal",
+                "processed_plain_text": "[imageurl:file:///latest.png]",
+                "time": 100.90,
+                "user_info": {"user_id": "bot"},
+            },
+        ]
+
+        resolved_id, placeholder_id = host._select_best_message_id(
+            msgs=msgs,
+            require_marker=True,
+            bot_account="bot",
+            send_timestamp=None,
+            timestamp_tolerance=0.2,
+        )
+
+        self.assertEqual(resolved_id, "msg_latest_formal")
+        self.assertIsNone(placeholder_id)
+
+    def test_select_best_message_id_without_send_timestamp_should_prefer_newer_formal_without_marker(self):
+        host = _DummyRecallHost()
+        msgs = [
+            {
+                "message_id": "msg_old_with_marker",
+                "display_message": NAI_PIC_IMAGE_DISPLAY_MARKER,
+                "processed_plain_text": "[imageurl:file:///old.png]",
+                "time": 100.10,
+                "user_info": {"user_id": "bot"},
+            },
+            {
+                "message_id": "msg_new_formal",
+                "processed_plain_text": "[imageurl:file:///new.png]",
+                "time": 100.90,
+                "user_info": {"user_id": "bot"},
+            },
+        ]
+
+        resolved_id, placeholder_id = host._select_best_message_id(
+            msgs=msgs,
+            require_marker=True,
+            bot_account="bot",
+            send_timestamp=None,
+            timestamp_tolerance=0.2,
+        )
+
+        self.assertEqual(resolved_id, "msg_new_formal")
+        self.assertIsNone(placeholder_id)
+
+    def test_select_best_message_id_without_send_timestamp_should_prefer_newest_placeholder_over_older_formal(self):
+        host = _DummyRecallHost()
+        msgs = [
+            {
+                "message_id": "msg_old_formal",
+                "display_message": NAI_PIC_IMAGE_DISPLAY_MARKER,
+                "processed_plain_text": "[imageurl:file:///old.png]",
+                "time": 100.10,
+                "user_info": {"user_id": "bot"},
+            },
+            {
+                "message_id": "send_api_new",
+                "display_message": NAI_PIC_IMAGE_DISPLAY_MARKER,
+                "processed_plain_text": "[imageurl:file:///new.png]",
+                "time": 100.90,
+                "user_info": {"user_id": "bot"},
+            },
+        ]
+
+        resolved_id, placeholder_id, candidate_time = host._select_best_message_candidate(
+            msgs=msgs,
+            require_marker=True,
+            bot_account="bot",
+            send_timestamp=None,
+            timestamp_tolerance=0.2,
+        )
+
+        self.assertIsNone(resolved_id)
+        self.assertEqual(placeholder_id, "send_api_new")
+        self.assertEqual(candidate_time, 100.90)
+
+    def test_select_best_message_id_should_prefer_closest_newer_formal_without_marker(self):
+        host = _DummyRecallHost()
+        msgs = [
+            {
+                "message_id": "msg_old_with_marker",
+                "display_message": NAI_PIC_IMAGE_DISPLAY_MARKER,
+                "processed_plain_text": "[imageurl:file:///old.png]",
+                "time": 100.10,
+                "user_info": {"user_id": "bot"},
+            },
+            {
+                "message_id": "msg_target_formal",
+                "processed_plain_text": "[imageurl:file:///target.png]",
+                "time": 100.42,
+                "user_info": {"user_id": "bot"},
+            },
+        ]
+
+        resolved_id, placeholder_id = host._select_best_message_id(
+            msgs=msgs,
+            require_marker=True,
+            bot_account="bot",
+            send_timestamp=100.30,
+            timestamp_tolerance=0.2,
+        )
+
+        self.assertEqual(resolved_id, "msg_target_formal")
+        self.assertIsNone(placeholder_id)
+
 
 if __name__ == "__main__":
     unittest.main()

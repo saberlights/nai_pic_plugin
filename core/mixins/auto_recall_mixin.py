@@ -291,8 +291,29 @@ class AutoRecallMixin:
         limit: int = 120,
         require_marker: bool = False,
         target_send_timestamp: Optional[float] = None,
+        exclude_message_ids: Optional[set[str]] = None,
     ) -> Optional[str]:
         """获取最后发送的消息ID（可选：仅限本插件图片）"""
+        resolved_id, placeholder_id, _ = await self._get_last_message_candidate(
+            hours=hours,
+            limit=limit,
+            require_marker=require_marker,
+            target_send_timestamp=target_send_timestamp,
+            exclude_message_ids=exclude_message_ids,
+        )
+        if resolved_id:
+            return resolved_id
+        return placeholder_id
+
+    async def _get_last_message_candidate(
+        self,
+        hours: float = 24.0,
+        limit: int = 120,
+        require_marker: bool = False,
+        target_send_timestamp: Optional[float] = None,
+        exclude_message_ids: Optional[set[str]] = None,
+    ) -> tuple[Optional[str], Optional[str], Optional[float]]:
+        """获取最后发送消息的候选结果，同时返回候选时间戳。"""
         try:
             logger.info(f"{self.log_prefix} 开始获取消息ID")
 
@@ -326,29 +347,30 @@ class AutoRecallMixin:
                 ) or []
                 logger.debug(f"{self.log_prefix} 尝试{attempt + 1}/{max_attempts}，获取到 {len(msgs)} 条消息")
 
-                resolved_id, placeholder_id = self._select_best_message_id(
+                resolved_id, placeholder_id, candidate_time = self._select_best_message_candidate(
                     msgs=msgs,
                     require_marker=require_marker,
                     bot_account=bot_account,
                     send_timestamp=send_timestamp,
                     timestamp_tolerance=timestamp_tolerance,
+                    exclude_message_ids=exclude_message_ids,
                 )
                 if resolved_id:
                     logger.info(f"{self.log_prefix} 命中消息ID: {resolved_id}")
-                    return resolved_id
+                    return resolved_id, None, candidate_time
 
                 if attempt < max_attempts - 1:
                     await asyncio.sleep(0.4)
 
             if placeholder_id:
                 logger.warning(f"{self.log_prefix} 未获取到正式ID，使用占位ID: {placeholder_id}")
-                return placeholder_id
+                return None, placeholder_id, candidate_time
 
             logger.warning(f"{self.log_prefix} 所有方法都未能获取消息ID")
-            return None
+            return None, None, None
         except Exception as exc:
             logger.error(f"{self.log_prefix} 获取消息ID失败: {exc!r}")
-            return None
+            return None, None, None
 
     def _select_best_message_id(
         self,
@@ -357,40 +379,49 @@ class AutoRecallMixin:
         bot_account: str,
         send_timestamp: Optional[float],
         timestamp_tolerance: float,
+        exclude_message_ids: Optional[set[str]] = None,
     ) -> tuple[Optional[str], Optional[str]]:
         """从候选消息中挑选最适合本次撤回的消息ID。"""
-        placeholder_id: Optional[str] = None
-        fallback_formal_candidates: list[tuple[float, float, str]] = []
+        resolved_id, placeholder_id, _ = self._select_best_message_candidate(
+            msgs=msgs,
+            require_marker=require_marker,
+            bot_account=bot_account,
+            send_timestamp=send_timestamp,
+            timestamp_tolerance=timestamp_tolerance,
+            exclude_message_ids=exclude_message_ids,
+        )
+        return resolved_id, placeholder_id
 
-        if send_timestamp is None:
-            for msg in reversed(msgs):
-                if require_marker:
-                    if not _is_nai_pic_plugin_image_message(msg):
-                        continue
-                else:
-                    if not _is_image_message(msg):
-                        continue
+    def _select_best_message_candidate(
+        self,
+        msgs: list,
+        require_marker: bool,
+        bot_account: str,
+        send_timestamp: Optional[float],
+        timestamp_tolerance: float,
+        exclude_message_ids: Optional[set[str]] = None,
+    ) -> tuple[Optional[str], Optional[str], Optional[float]]:
+        """从候选消息中挑选最适合本次撤回的消息ID，并返回候选时间戳。"""
+        excluded_ids = {str(mid) for mid in (exclude_message_ids or set()) if mid}
+        best_formal: Optional[tuple[tuple[float, float, float, float], str, Optional[float]]] = None
+        best_placeholder: Optional[tuple[tuple[float, float, float, float], str, Optional[float]]] = None
 
-                message_id = _extract_message_field(msg, "message_id")
-                if not message_id:
-                    continue
-                message_id = str(message_id)
+        def _remember_candidate(
+            message_id: str,
+            msg_time_val: Optional[float],
+            sort_key: tuple[float, float, float, float],
+        ) -> None:
+            nonlocal best_formal, best_placeholder
+            candidate = (sort_key, message_id, msg_time_val)
+            if message_id.startswith("send_api_"):
+                if best_placeholder is None or sort_key > best_placeholder[0]:
+                    best_placeholder = candidate
+                return
 
-                if (not require_marker) and bot_account:
-                    msg_user_id = _extract_sender_user_id(msg)
-                    if not msg_user_id or msg_user_id != bot_account:
-                        continue
+            if best_formal is None or sort_key > best_formal[0]:
+                best_formal = candidate
 
-                if not message_id.startswith("send_api_"):
-                    return message_id, None
-                placeholder_id = message_id
-
-            return None, placeholder_id
-
-        formal_candidates: list[tuple[float, float, str]] = []
-        placeholder_candidates: list[tuple[float, float, str]] = []
-
-        for msg in msgs:
+        for index, msg in enumerate(msgs):
             msg_is_plugin_image = _is_nai_pic_plugin_image_message(msg)
             msg_is_image = _is_image_message(msg)
 
@@ -405,10 +436,16 @@ class AutoRecallMixin:
             if not message_id:
                 continue
             message_id = str(message_id)
+            if message_id in excluded_ids:
+                continue
 
-            if (not require_marker) and bot_account:
-                msg_user_id = _extract_sender_user_id(msg)
+            msg_user_id = _extract_sender_user_id(msg)
+            if not require_marker and bot_account:
                 if not msg_user_id or msg_user_id != bot_account:
+                    continue
+
+            if require_marker and not msg_is_plugin_image:
+                if not bot_account or not msg_is_image or msg_user_id != bot_account:
                     continue
 
             msg_time = _extract_message_field(msg, "time")
@@ -417,63 +454,44 @@ class AutoRecallMixin:
             except (TypeError, ValueError):
                 msg_time_val = None
 
+            if send_timestamp is None:
+                sort_key = (
+                    msg_time_val if msg_time_val is not None else float("-inf"),
+                    1.0 if not message_id.startswith("send_api_") else 0.0,
+                    1.0 if msg_is_plugin_image else 0.0,
+                    float(index),
+                )
+                _remember_candidate(message_id, msg_time_val, sort_key)
+                continue
+
             if msg_time_val is not None and msg_time_val + timestamp_tolerance < send_timestamp:
                 continue
 
-            msg_user_id = _extract_sender_user_id(msg)
-
             if require_marker and not msg_is_plugin_image:
                 # 某些平台 echo 回写后的正式消息不会保留 display_message，
-                # 这里允许在“同 bot + 同时间附近 + 正式图片消息”条件下回退命中正式ID。
-                if (
-                    send_timestamp is None
-                    or not bot_account
-                    or not msg_is_image
-                    or msg_user_id != bot_account
-                    or message_id.startswith("send_api_")
-                ):
-                    continue
-
+                # 这里允许在“同 bot + 同时间附近 + 图片消息”条件下继续命中正确目标。
                 if msg_time_val is not None and abs(msg_time_val - send_timestamp) > 8.0:
                     continue
 
-                if msg_time_val is None:
-                    score = float("inf")
-                    order_hint = float("inf")
-                else:
-                    score = abs(msg_time_val - send_timestamp)
-                    order_hint = msg_time_val
+            sort_key = (
+                1.0 if not message_id.startswith("send_api_") else 0.0,
+                -abs(msg_time_val - send_timestamp) if msg_time_val is not None else float("-inf"),
+                1.0 if msg_is_plugin_image else 0.0,
+                msg_time_val if msg_time_val is not None else float("-inf"),
+            )
+            _remember_candidate(message_id, msg_time_val, sort_key)
 
-                fallback_formal_candidates.append((score, order_hint, message_id))
-                continue
+        if send_timestamp is None and best_placeholder:
+            if best_formal is None or best_placeholder[0] > best_formal[0]:
+                return None, best_placeholder[1], best_placeholder[2]
 
-            # 优先选择“最接近这次发送时间”的那条消息，避免多图连续发送时都命中最后一张。
-            if msg_time_val is None:
-                score = float("inf")
-                order_hint = float("inf")
-            else:
-                score = abs(msg_time_val - send_timestamp)
-                order_hint = msg_time_val
+        if best_formal:
+            return best_formal[1], None, best_formal[2]
 
-            candidate = (score, order_hint, message_id)
-            if message_id.startswith("send_api_"):
-                placeholder_candidates.append(candidate)
-            else:
-                formal_candidates.append(candidate)
+        if best_placeholder:
+            return None, best_placeholder[1], best_placeholder[2]
 
-        if formal_candidates:
-            _, _, message_id = min(formal_candidates, key=lambda item: (item[0], item[1], item[2]))
-            return message_id, None
-
-        if fallback_formal_candidates:
-            _, _, message_id = min(fallback_formal_candidates, key=lambda item: (item[0], item[1], item[2]))
-            return message_id, None
-
-        if placeholder_candidates:
-            _, _, message_id = min(placeholder_candidates, key=lambda item: (item[0], item[1], item[2]))
-            return None, message_id
-
-        return None, None
+        return None, None, None
 
     async def _try_recall_message(self, message_id: str) -> bool:
         """尝试撤回消息"""

@@ -145,11 +145,8 @@ class ManualRecallCommandTest(unittest.TestCase):
         )
         sent_texts = []
 
-        async def _get_last_message_id(**kwargs):
-            return "latest_001"
-
-        async def _resolve_latest_message_id(message_id):
-            return message_id
+        async def _get_last_message_candidate(**kwargs):
+            return "latest_001", None, 100.0
 
         async def _do_recall(message_id, source):
             return True, f"{source}:{message_id}", True
@@ -157,8 +154,7 @@ class ManualRecallCommandTest(unittest.TestCase):
         async def _send_text(text, **kwargs):
             sent_texts.append(text)
 
-        cmd._get_last_message_id = _get_last_message_id
-        cmd._resolve_latest_message_id = _resolve_latest_message_id
+        cmd._get_last_message_candidate = _get_last_message_candidate
         cmd._do_recall = _do_recall
         cmd.send_text = _send_text
 
@@ -169,6 +165,102 @@ class ManualRecallCommandTest(unittest.TestCase):
         self.assertEqual(reason, "最近图片:latest_001")
         self.assertTrue(intercept)
         self.assertEqual(sent_texts, [])
+
+    def test_execute_should_skip_recently_recalled_message_on_next_call(self):
+        import asyncio
+
+        NaiManualRecallCommand._recent_manual_recall_ids = {}
+
+        first = object.__new__(NaiManualRecallCommand)
+        first.log_prefix = "[test]"
+        first.message = _DummyMessage(
+            message_id="cmd_1",
+            additional_config={},
+            message_segment=None,
+        )
+
+        second = object.__new__(NaiManualRecallCommand)
+        second.log_prefix = "[test]"
+        second.message = _DummyMessage(
+            message_id="cmd_2",
+            additional_config={},
+            message_segment=None,
+        )
+
+        captured_excludes = []
+        first_targets = iter(["img_2"])
+        second_targets = iter(["img_1"])
+
+        async def _get_last_message_candidate_first(**kwargs):
+            captured_excludes.append(set(kwargs.get("exclude_message_ids") or set()))
+            return next(first_targets), None, 101.0
+
+        async def _get_last_message_candidate_second(**kwargs):
+            captured_excludes.append(set(kwargs.get("exclude_message_ids") or set()))
+            return next(second_targets), None, 100.0
+
+        async def _do_recall(self, message_id, source):
+            return await NaiManualRecallCommand._do_recall(self, message_id, source)
+
+        async def _try_recall_message(_message_id):
+            return True
+
+        async def _send_text(_text, **kwargs):
+            return None
+
+        first._get_last_message_candidate = _get_last_message_candidate_first
+        first._try_recall_message = _try_recall_message
+        first.send_text = _send_text
+
+        second._get_last_message_candidate = _get_last_message_candidate_second
+        second._try_recall_message = _try_recall_message
+        second.send_text = _send_text
+
+        ok1, _, _ = asyncio.run(first.execute())
+        ok2, _, _ = asyncio.run(second.execute())
+
+        self.assertTrue(ok1)
+        self.assertTrue(ok2)
+        self.assertEqual(captured_excludes[0], set())
+        self.assertEqual(captured_excludes[1], {"img_2"})
+
+    def test_execute_should_resolve_newest_placeholder_instead_of_recalling_older_formal(self):
+        import asyncio
+
+        cmd = object.__new__(NaiManualRecallCommand)
+        cmd.log_prefix = "[test]"
+        cmd.message = _DummyMessage(
+            message_id="cmd_3",
+            additional_config={},
+            message_segment=None,
+        )
+
+        captured_target_timestamps = []
+
+        async def _get_last_message_candidate(**kwargs):
+            return None, "send_api_latest", 200.5
+
+        async def _resolve_latest_message_id(message_id, target_send_timestamp=None):
+            captured_target_timestamps.append((message_id, target_send_timestamp))
+            return "img_latest_formal"
+
+        async def _do_recall(message_id, source):
+            return True, f"{source}:{message_id}", True
+
+        async def _send_text(_text, **kwargs):
+            return None
+
+        cmd._get_last_message_candidate = _get_last_message_candidate
+        cmd._resolve_latest_message_id = _resolve_latest_message_id
+        cmd._do_recall = _do_recall
+        cmd.send_text = _send_text
+
+        ok, reason, intercept = asyncio.run(cmd.execute())
+
+        self.assertTrue(ok)
+        self.assertEqual(reason, "最近图片:img_latest_formal")
+        self.assertTrue(intercept)
+        self.assertEqual(captured_target_timestamps, [("send_api_latest", 200.5)])
 
 
 if __name__ == "__main__":
