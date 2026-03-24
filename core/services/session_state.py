@@ -168,6 +168,34 @@ class SessionStateManager:
         key = self._make_key(platform, chat_id)
         return self._selected_artists.get(key, 1)
 
+    def get_effective_artist_index(
+        self,
+        platform: str,
+        chat_id: str,
+        model_name: str,
+        get_config: Callable,
+    ) -> int:
+        """
+        获取指定会话当前实际生效的画师串索引。
+
+        若会话中未手动切换，则回退到配置中的 default_artist_preset。
+        """
+        config_section = self._get_artist_config_section(model_name)
+        if not config_section:
+            return 1
+
+        artist_presets_raw = get_config(f"{config_section}.artist_presets", [])
+        artist_presets = self._parse_artist_presets(artist_presets_raw)
+        if not artist_presets:
+            return 1
+
+        key = self._make_key(platform, chat_id)
+        if key in self._selected_artists:
+            selected_index = self._selected_artists[key]
+            return selected_index if 1 <= selected_index <= len(artist_presets) else 1
+
+        return self._resolve_default_artist_index(config_section, artist_presets, get_config)
+
     def set_selected_artist_index(self, platform: str, chat_id: str, index: int):
         """设置画师串索引"""
         key = self._make_key(platform, chat_id)
@@ -206,14 +234,8 @@ class SessionStateManager:
             统一格式的预设字典，至少包含 name / prompt，
             若配置了非空的 negative_prompt_add 也会一并返回。
         """
-        # 根据模型确定配置节
-        if "nai-diffusion-3" in model_name:
-            config_section = "model_nai3"
-        elif "nai-diffusion-4-5" in model_name:
-            config_section = "model_nai4_5"
-        elif "nai-diffusion-4" in model_name:
-            config_section = "model_nai4"
-        else:
+        config_section = self._get_artist_config_section(model_name)
+        if not config_section:
             return None
 
         # 获取画师串列表
@@ -237,6 +259,17 @@ class SessionStateManager:
         if 1 <= selected_index <= len(artist_presets):
             return artist_presets[selected_index - 1]
         return artist_presets[0] if artist_presets else None
+
+    @staticmethod
+    def _get_artist_config_section(model_name: str) -> Optional[str]:
+        """根据模型名解析画师串配置节。"""
+        if "nai-diffusion-3" in model_name:
+            return "model_nai3"
+        if "nai-diffusion-4-5" in model_name:
+            return "model_nai4_5"
+        if "nai-diffusion-4" in model_name:
+            return "model_nai4"
+        return None
 
     def _resolve_default_artist_index(
         self,

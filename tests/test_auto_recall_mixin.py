@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 import os
 import sys
+import types
 import unittest
+import importlib
 
 
 PLUGIN_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -12,14 +14,79 @@ if MAIBOT_ROOT not in sys.path:
 if PLUGIN_DIR not in sys.path:
     sys.path.insert(0, PLUGIN_DIR)
 
+dummy_logger_module = types.ModuleType("src.common.logger")
 
-from core.constants import NAI_PIC_IMAGE_DISPLAY_MARKER
-from core.mixins.auto_recall_mixin import (
-    _extract_sender_user_id,
-    _is_image_message,
-    _is_nai_pic_plugin_image_message,
-    _text_looks_like_image,
+
+class _DummyLogger:
+    def debug(self, *args, **kwargs):
+        return None
+
+    def info(self, *args, **kwargs):
+        return None
+
+    def warning(self, *args, **kwargs):
+        return None
+
+    def error(self, *args, **kwargs):
+        return None
+
+
+def _get_logger(_name=None):
+    return _DummyLogger()
+
+
+dummy_logger_module.get_logger = _get_logger
+sys.modules["src.common.logger"] = dummy_logger_module
+
+src_package = types.ModuleType("src")
+src_package.__path__ = [os.path.join(MAIBOT_ROOT, "src")]
+sys.modules.setdefault("src", src_package)
+
+src_chat_package = types.ModuleType("src.chat")
+src_chat_package.__path__ = [os.path.join(MAIBOT_ROOT, "src", "chat")]
+sys.modules.setdefault("src.chat", src_chat_package)
+
+src_chat_utils_package = types.ModuleType("src.chat.utils")
+src_chat_utils_package.__path__ = [os.path.join(MAIBOT_ROOT, "src", "chat", "utils")]
+sys.modules.setdefault("src.chat.utils", src_chat_utils_package)
+
+chat_utils_module = types.ModuleType("src.chat.utils.utils")
+chat_utils_module.parse_platform_accounts = lambda _platforms: {}
+sys.modules["src.chat.utils.utils"] = chat_utils_module
+
+src_config_package = types.ModuleType("src.config")
+src_config_package.__path__ = [os.path.join(MAIBOT_ROOT, "src", "config")]
+sys.modules.setdefault("src.config", src_config_package)
+
+config_module = types.ModuleType("src.config.config")
+config_module.global_config = types.SimpleNamespace(
+    bot=types.SimpleNamespace(
+        platforms=[],
+        qq_account="bot",
+        telegram_account="",
+        nickname="bot",
+    )
 )
+sys.modules["src.config.config"] = config_module
+
+core_package = types.ModuleType("core")
+core_package.__path__ = [os.path.join(PLUGIN_DIR, "core")]
+sys.modules.setdefault("core", core_package)
+
+core_mixins_package = types.ModuleType("core.mixins")
+core_mixins_package.__path__ = [os.path.join(PLUGIN_DIR, "core", "mixins")]
+sys.modules.setdefault("core.mixins", core_mixins_package)
+
+core_constants_module = importlib.import_module("core.constants")
+auto_recall_mixin_module = importlib.import_module("core.mixins.auto_recall_mixin")
+
+NAI_PIC_IMAGE_DISPLAY_MARKER = core_constants_module.NAI_PIC_IMAGE_DISPLAY_MARKER
+
+AutoRecallMixin = auto_recall_mixin_module.AutoRecallMixin
+_extract_sender_user_id = auto_recall_mixin_module._extract_sender_user_id
+_is_image_message = auto_recall_mixin_module._is_image_message
+_is_nai_pic_plugin_image_message = auto_recall_mixin_module._is_nai_pic_plugin_image_message
+_text_looks_like_image = auto_recall_mixin_module._text_looks_like_image
 
 
 class _DummyUserInfo:
@@ -34,6 +101,13 @@ class _DummyMsg:
         self.display_message = None
         self.raw_message = None
         self.is_picid = False
+
+
+class _DummyRecallHost(AutoRecallMixin):
+    log_prefix = "test_nai_pic"
+
+    def _is_auto_recall_enabled(self, platform: str, chat_id: str) -> bool:
+        return True
 
 
 class AutoRecallMixinUtilsTest(unittest.TestCase):
@@ -69,6 +143,40 @@ class AutoRecallMixinUtilsTest(unittest.TestCase):
             "display_message": NAI_PIC_IMAGE_DISPLAY_MARKER,
         }
         self.assertTrue(_is_nai_pic_plugin_image_message(msg_dict))
+
+    def test_select_best_message_id_should_pick_closest_message_after_send_timestamp(self):
+        host = _DummyRecallHost()
+        msgs = [
+            {
+                "message_id": "msg_late",
+                "display_message": NAI_PIC_IMAGE_DISPLAY_MARKER,
+                "processed_plain_text": "[imageurl:file:///late.png]",
+                "time": 101.20,
+            },
+            {
+                "message_id": "msg_target",
+                "display_message": NAI_PIC_IMAGE_DISPLAY_MARKER,
+                "processed_plain_text": "[imageurl:file:///target.png]",
+                "time": 100.35,
+            },
+            {
+                "message_id": "msg_old",
+                "display_message": NAI_PIC_IMAGE_DISPLAY_MARKER,
+                "processed_plain_text": "[imageurl:file:///old.png]",
+                "time": 99.80,
+            },
+        ]
+
+        resolved_id, placeholder_id = host._select_best_message_id(
+            msgs=msgs,
+            require_marker=True,
+            bot_account="",
+            send_timestamp=100.30,
+            timestamp_tolerance=0.2,
+        )
+
+        self.assertEqual(resolved_id, "msg_target")
+        self.assertIsNone(placeholder_id)
 
 
 if __name__ == "__main__":

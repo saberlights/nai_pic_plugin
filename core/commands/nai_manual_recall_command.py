@@ -24,7 +24,7 @@ class NaiManualRecallCommand(BaseCommand, AutoRecallMixin):
 
     command_name = "nai_manual_recall_command"
     command_description = "手动撤回图片：/nai 撤回"
-    command_pattern = r"(?:.*，说：\s*)?/nai\s+撤回$"
+    command_pattern = r"(?:.*?)(?:/nai\s+撤回)\s*$"
 
     async def execute(self) -> Tuple[bool, Optional[str], bool]:
         logger.info(f"{self.log_prefix} [手动撤回] 收到 /nai 撤回")
@@ -188,6 +188,16 @@ class NaiManualRecallCommand(BaseCommand, AutoRecallMixin):
         target_id = (message_id or "").strip()
         if not target_id:
             return False, None, "未获取到引用消息ID"
+
+        # 快路径：若上游已经把被引用消息内容挂在 message.reply 上，直接校验，
+        # 避免再走历史扫描，减少引用图片时的等待。
+        reply_msg = getattr(self.message, "reply", None)
+        if reply_msg:
+            reply_mid = _extract_message_field(getattr(reply_msg, "message_info", None), "message_id")
+            if reply_mid is not None and str(reply_mid).strip() == target_id:
+                if _is_nai_pic_plugin_image_message(reply_msg):
+                    return True, target_id, "ok"
+                return False, None, "该消息不是本插件生成的图片"
 
         chat_stream = getattr(self.message, "chat_stream", None)
         stream_id = getattr(chat_stream, "stream_id", None) if chat_stream else None

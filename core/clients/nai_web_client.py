@@ -62,7 +62,8 @@ class NaiWebClient:
             else:
                 full_prompt = prompt
 
-            artist_prompt = model_config.get("nai_artist_prompt") or model_config.get("artist_prompt") or custom_prompt_add
+            # artist 参数只能来自显式配置的画师串，不能回退到通用正向提示词。
+            artist_prompt = model_config.get("nai_artist_prompt") or model_config.get("artist_prompt")
 
             negative_prompt = model_config.get("negative_prompt_add", "")
             sampler = model_config.get("sampler", "")

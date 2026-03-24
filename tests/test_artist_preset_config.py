@@ -147,6 +147,35 @@ class ArtistPresetConfigTest(unittest.TestCase):
         self.assertEqual(model_config["nai_artist_prompt"], "artist:a")
         self.assertEqual(model_config["negative_prompt_add"], "model-default-negative")
 
+    def test_effective_artist_index_uses_config_default_when_session_not_overridden(self):
+        config = {
+            "model_nai4_5": {
+                "artist_presets": [
+                    {"name": "风格A", "prompt": "artist:a"},
+                    {"name": "风格B", "prompt": "artist:b"},
+                    {"name": "风格C", "prompt": "artist:c"},
+                ],
+                "default_artist_preset": 2,
+            }
+        }
+
+        def get_config(path, default=None):
+            current = config
+            for part in path.split("."):
+                if not isinstance(current, dict) or part not in current:
+                    return default
+                current = current[part]
+            return current
+
+        index = session_state.get_effective_artist_index(
+            "qq",
+            "10001",
+            "nai-diffusion-4-5-full",
+            get_config,
+        )
+
+        self.assertEqual(index, 2)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -277,7 +277,12 @@ class NaiAdminControlCommand(BaseCommand):
 
         # 显示列表
         if not preset_index:
-            current_index = session_state.get_selected_artist_index(platform, chat_id)
+            current_index = session_state.get_effective_artist_index(
+                platform,
+                chat_id,
+                current_model,
+                self.get_config,
+            )
             preset_list = "\n".join([
                 f"{'→ ' if i == current_index else '  '}{i}. {preset['name']}"
                 for i, preset in enumerate(artist_presets, 1)
