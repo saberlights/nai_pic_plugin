@@ -4,7 +4,6 @@ import re
 import sys
 import types
 import unittest
-import asyncio
 import importlib
 
 
@@ -72,7 +71,6 @@ config_module.global_config = types.SimpleNamespace(
 sys.modules["src.config.config"] = config_module
 
 plugin_system_module = types.ModuleType("src.plugin_system")
-plugin_system_module.message_api = types.SimpleNamespace(get_recent_messages=lambda **kwargs: [])
 sys.modules["src.plugin_system"] = plugin_system_module
 
 plugin_system_base_package = types.ModuleType("src.plugin_system.base")
@@ -108,7 +106,6 @@ core_constants_module = importlib.import_module("core.constants")
 manual_recall_module = importlib.import_module("core.commands.nai_manual_recall_command")
 
 NaiManualRecallCommand = manual_recall_module.NaiManualRecallCommand
-NAI_PIC_IMAGE_DISPLAY_MARKER = core_constants_module.NAI_PIC_IMAGE_DISPLAY_MARKER
 
 
 class _DummyMessageInfo:
@@ -134,42 +131,44 @@ class ManualRecallCommandTest(unittest.TestCase):
         text = "[回复<xx> 的消息：[imageurl:file:///a.png]] /nai 撤回"
         self.assertIsNotNone(re.match(NaiManualRecallCommand.command_pattern, text))
 
-    def test_extract_reply_message_id_should_not_use_self_message_id(self):
-        """
-        防止把“当前命令消息ID”当作引用目标（历史上容易误判）。
-        """
+    def test_command_pattern_should_match_manual_recall_with_trailing_image_artifact(self):
+        text = "/nai 撤回 [图片]"
+        self.assertIsNotNone(re.match(NaiManualRecallCommand.command_pattern, text))
+
+    def test_execute_should_recall_latest_image_only(self):
         cmd = object.__new__(NaiManualRecallCommand)
+        cmd.log_prefix = "[test]"
         cmd.message = _DummyMessage(
             message_id="cmd_123",
-            additional_config={"message_id": "cmd_123"},
+            additional_config={},
             message_segment=None,
         )
-        self.assertIsNone(cmd._extract_reply_message_id())
+        sent_texts = []
 
-    def test_extract_reply_message_id_from_reply_segment(self):
-        cmd = object.__new__(NaiManualRecallCommand)
-        cmd.message = _DummyMessage(
-            message_id="cmd_123",
-            additional_config={},
-            message_segment={"type": "reply", "data": "target_456"},
-        )
-        self.assertEqual(cmd._extract_reply_message_id(), "target_456")
+        async def _get_last_message_id(**kwargs):
+            return "latest_001"
 
-    def test_validate_reply_target_should_use_reply_payload_fast_path(self):
-        cmd = object.__new__(NaiManualRecallCommand)
-        reply_msg = _DummyMessage(message_id="target_456")
-        reply_msg.display_message = NAI_PIC_IMAGE_DISPLAY_MARKER
-        cmd.message = _DummyMessage(
-            message_id="cmd_123",
-            additional_config={},
-            message_segment={"type": "reply", "data": "target_456"},
-            reply=reply_msg,
-        )
+        async def _resolve_latest_message_id(message_id):
+            return message_id
 
-        ok, resolved_id, reason = asyncio.run(cmd._validate_reply_target("target_456"))
+        async def _do_recall(message_id, source):
+            return True, f"{source}:{message_id}", True
+
+        async def _send_text(text, **kwargs):
+            sent_texts.append(text)
+
+        cmd._get_last_message_id = _get_last_message_id
+        cmd._resolve_latest_message_id = _resolve_latest_message_id
+        cmd._do_recall = _do_recall
+        cmd.send_text = _send_text
+
+        import asyncio
+        ok, reason, intercept = asyncio.run(cmd.execute())
+
         self.assertTrue(ok)
-        self.assertEqual(resolved_id, "target_456")
-        self.assertEqual(reason, "ok")
+        self.assertEqual(reason, "最近图片:latest_001")
+        self.assertTrue(intercept)
+        self.assertEqual(sent_texts, [])
 
 
 if __name__ == "__main__":

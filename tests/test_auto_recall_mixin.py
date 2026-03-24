@@ -178,6 +178,34 @@ class AutoRecallMixinUtilsTest(unittest.TestCase):
         self.assertEqual(resolved_id, "msg_target")
         self.assertIsNone(placeholder_id)
 
+    def test_select_best_message_id_should_fallback_to_formal_bot_image_without_marker(self):
+        host = _DummyRecallHost()
+        msgs = [
+            {
+                "message_id": "send_api_123",
+                "display_message": NAI_PIC_IMAGE_DISPLAY_MARKER,
+                "processed_plain_text": "[imageurl:file:///placeholder.png]",
+                "time": 100.30,
+            },
+            {
+                "message_id": "msg_formal",
+                "processed_plain_text": "[imageurl:file:///formal.png]",
+                "time": 100.45,
+                "user_info": {"user_id": "bot"},
+            },
+        ]
+
+        resolved_id, placeholder_id = host._select_best_message_id(
+            msgs=msgs,
+            require_marker=True,
+            bot_account="bot",
+            send_timestamp=100.30,
+            timestamp_tolerance=0.2,
+        )
+
+        self.assertEqual(resolved_id, "msg_formal")
+        self.assertIsNone(placeholder_id)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -360,6 +360,7 @@ class AutoRecallMixin:
     ) -> tuple[Optional[str], Optional[str]]:
         """从候选消息中挑选最适合本次撤回的消息ID。"""
         placeholder_id: Optional[str] = None
+        fallback_formal_candidates: list[tuple[float, float, str]] = []
 
         if send_timestamp is None:
             for msg in reversed(msgs):
@@ -390,11 +391,14 @@ class AutoRecallMixin:
         placeholder_candidates: list[tuple[float, float, str]] = []
 
         for msg in msgs:
+            msg_is_plugin_image = _is_nai_pic_plugin_image_message(msg)
+            msg_is_image = _is_image_message(msg)
+
             if require_marker:
-                if not _is_nai_pic_plugin_image_message(msg):
+                if not msg_is_plugin_image and not msg_is_image:
                     continue
             else:
-                if not _is_image_message(msg):
+                if not msg_is_image:
                     continue
 
             message_id = _extract_message_field(msg, "message_id")
@@ -416,6 +420,33 @@ class AutoRecallMixin:
             if msg_time_val is not None and msg_time_val + timestamp_tolerance < send_timestamp:
                 continue
 
+            msg_user_id = _extract_sender_user_id(msg)
+
+            if require_marker and not msg_is_plugin_image:
+                # 某些平台 echo 回写后的正式消息不会保留 display_message，
+                # 这里允许在“同 bot + 同时间附近 + 正式图片消息”条件下回退命中正式ID。
+                if (
+                    send_timestamp is None
+                    or not bot_account
+                    or not msg_is_image
+                    or msg_user_id != bot_account
+                    or message_id.startswith("send_api_")
+                ):
+                    continue
+
+                if msg_time_val is not None and abs(msg_time_val - send_timestamp) > 8.0:
+                    continue
+
+                if msg_time_val is None:
+                    score = float("inf")
+                    order_hint = float("inf")
+                else:
+                    score = abs(msg_time_val - send_timestamp)
+                    order_hint = msg_time_val
+
+                fallback_formal_candidates.append((score, order_hint, message_id))
+                continue
+
             # 优先选择“最接近这次发送时间”的那条消息，避免多图连续发送时都命中最后一张。
             if msg_time_val is None:
                 score = float("inf")
@@ -432,6 +463,10 @@ class AutoRecallMixin:
 
         if formal_candidates:
             _, _, message_id = min(formal_candidates, key=lambda item: (item[0], item[1], item[2]))
+            return message_id, None
+
+        if fallback_formal_candidates:
+            _, _, message_id = min(fallback_formal_candidates, key=lambda item: (item[0], item[1], item[2]))
             return message_id, None
 
         if placeholder_candidates:

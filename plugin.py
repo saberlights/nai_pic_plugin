@@ -560,10 +560,10 @@ class NaiPicPlugin(BasePlugin):
         components.append((NaiRecallControlCommand.get_command_info(), NaiRecallControlCommand))
         components.append((NaiNsfwControlCommand.get_command_info(), NaiNsfwControlCommand))
         components.append((NaiAdminControlCommand.get_command_info(), NaiAdminControlCommand))
+        components.append((NaiManualRecallCommand.get_command_info(), NaiManualRecallCommand))
         components.append((NaiDrawCommand.get_command_info(), NaiDrawCommand))
         components.append((Nai0DrawCommand.get_command_info(), Nai0DrawCommand))
         components.append((NaiPromptShowCommand.get_command_info(), NaiPromptShowCommand))
         if self.get_config("tagger.enabled", True):
             components.append((NaiTaggerCommand.get_command_info(), NaiTaggerCommand))
-        components.append((NaiManualRecallCommand.get_command_info(), NaiManualRecallCommand))
         return components
