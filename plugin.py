@@ -32,20 +32,23 @@ class NaiPicPlugin(BasePlugin):
     # 配置节描述
     config_section_descriptions = {
         "plugin": "插件基本配置",
-        "model": "NovelAI Web 模型配置",
-        "model_nai3": "NovelAI V3 模型专用配置（nai-diffusion-3 和 nai-diffusion-3-furry）",
-        "model_nai4": "NovelAI V4 模型专用配置（nai-diffusion-4-curated、nai-diffusion-4-full 等）",
-        "model_nai4_5": "NovelAI V4.5 模型专用配置（nai-diffusion-4-5-full 等最新模型）",
+        "model": "NovelAI Web 连接与默认模型配置",
+        "prompt_generator": "提示词生成配置（/nai）",
+        "prompt_generator.custom_model": "提示词生成自定义模型配置",
+        "random_scene": "随机场景生成配置（/nai 随机）",
+        "random_scene.custom_model": "随机场景生成自定义模型配置",
+        "tagger": "图片打标配置（/打标）",
+        "tagger.custom_model": "图片打标自定义模型配置",
         "components": "组件配置",
+        "prompt_show": "提示词显示配置",
+        "nsfw_filter": "NSFW 内容过滤配置",
         "auto_recall": "自动撤回配置",
         "admin": "管理员权限配置",
-        "prompt_show": "提示词显示配置",
-        "prompt_generator": "提示词生成配置",
-        "prompt_generator.custom_model": "自定义LLM模型配置（支持多模型、负载均衡）",
-        "random_scene": "随机场景生成配置（/nai 随机）",
-        "tagger": "图片打标配置（/打标）",
-        "custom_prompt": "自定义系统提示词配置",
         "tag_retriever": "Danbooru Tag 检索增强配置",
+        "custom_prompt": "自定义系统提示词配置",
+        "model_nai4_5": "NovelAI V4.5 模型专用配置（nai-diffusion-4-5-full 等最新模型）",
+        "model_nai4": "NovelAI V4 模型专用配置（nai-diffusion-4-curated、nai-diffusion-4-full 等）",
+        "model_nai3": "NovelAI V3 模型专用配置（nai-diffusion-3 和 nai-diffusion-3-furry）",
     }
 
     # 配置Schema
@@ -115,7 +118,7 @@ class NaiPicPlugin(BasePlugin):
                     {"name": "示例风格1", "prompt": "artist:example1, artist:example2, year 2023"},
                     {"name": "示例风格2", "prompt": "artist:example3, artist:example4, year 2024"}
                 ],
-                description="NAI V3 画师风格预设列表（可配置多个），每个预设包含 name（显示名称）和 prompt（画师串内容）"
+                description="NAI V3 画师风格预设列表（可配置多个），每个预设包含 name（显示名称）、prompt（画师串内容），可选填写 negative_prompt_add（该预设专属负面提示词）"
             ),
             "default_artist_preset": ConfigField(
                 type=str,
@@ -195,7 +198,7 @@ class NaiPicPlugin(BasePlugin):
                     {"name": "风格组合1", "prompt": "1.2::artist1::, 1.0::artist2::, 0.9::artist3::"},
                     {"name": "风格组合2", "prompt": "1.5::artist4::, 1.0::artist5::, 0.8::artist6::"}
                 ],
-                description="NAI V4 画师风格预设列表（可配置多个），每个预设包含 name（显示名称）和 prompt（画师串内容）"
+                description="NAI V4 画师风格预设列表（可配置多个），每个预设包含 name（显示名称）、prompt（画师串内容），可选填写 negative_prompt_add（该预设专属负面提示词）"
             ),
             "default_artist_preset": ConfigField(
                 type=str,
@@ -275,7 +278,7 @@ class NaiPicPlugin(BasePlugin):
                     {"name": "风格示例1", "prompt": "1.2::artist:example1::, 1.0::artist:example2::, 0.8::artist:example3::"},
                     {"name": "风格示例2", "prompt": "1.5::artist:example4::, 1.3::artist:example5::"}
                 ],
-                description="NAI V4.5 画师风格预设列表（可配置多个），每个预设包含 name（显示名称）和 prompt（画师串内容）"
+                description="NAI V4.5 画师风格预设列表（可配置多个），每个预设包含 name（显示名称）、prompt（画师串内容），可选填写 negative_prompt_add（该预设专属负面提示词）"
             ),
             "default_artist_preset": ConfigField(
                 type=str,

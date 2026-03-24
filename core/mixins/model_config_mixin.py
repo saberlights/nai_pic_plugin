@@ -66,12 +66,21 @@ class ModelConfigMixin:
 
         # 应用会话级别的画师串选择
         if platform and chat_id and model_name:
-            selected_artist = session_state.get_selected_artist_preset(
+            selected_artist = session_state.get_selected_artist_preset_config(
                 platform, chat_id, model_name, self.get_config  # type: ignore[attr-defined]
             )
             if selected_artist:
-                merged_config["nai_artist_prompt"] = selected_artist
-                logger.debug(f"{self._log_prefix} 使用会话选定的画师串: {selected_artist[:50]}...")
+                selected_prompt = str(selected_artist.get("prompt", "") or "")
+                if selected_prompt:
+                    merged_config["nai_artist_prompt"] = selected_prompt
+                    logger.debug(f"{self._log_prefix} 使用会话选定的画师串: {selected_prompt[:50]}...")
+
+                # 仅当预设里显式配置了非空负面提示词时才覆盖模型默认值；
+                # 未配置、空字符串或纯空白都继续回退到模型段 negative_prompt_add。
+                selected_negative = str(selected_artist.get("negative_prompt_add", "") or "").strip()
+                if selected_negative:
+                    merged_config["negative_prompt_add"] = selected_negative
+                    logger.debug(f"{self._log_prefix} 使用画师预设专属负面提示词: {selected_negative[:50]}...")
 
         # 应用会话级别的尺寸选择
         if platform and chat_id:

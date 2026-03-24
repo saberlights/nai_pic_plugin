@@ -181,17 +181,30 @@ class SessionStateManager:
         model_name: str,
         get_config: Callable
     ) -> Optional[str]:
-        """
-        获取指定会话选定的画师串内容
+        """获取指定会话选定的画师串内容。"""
+        selected_preset = self.get_selected_artist_preset_config(
+            platform,
+            chat_id,
+            model_name,
+            get_config,
+        )
+        if not selected_preset:
+            return None
+        return selected_preset.get("prompt")
 
-        Args:
-            platform: 平台标识
-            chat_id: 会话ID
-            model_name: 当前使用的模型名称
-            get_config: 获取配置的函数
+    def get_selected_artist_preset_config(
+        self,
+        platform: str,
+        chat_id: str,
+        model_name: str,
+        get_config: Callable,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        获取指定会话当前选中的画师预设完整配置。
 
         Returns:
-            选定的画师串内容，未设置则返回第一个预设
+            统一格式的预设字典，至少包含 name / prompt，
+            若配置了非空的 negative_prompt_add 也会一并返回。
         """
         # 根据模型确定配置节
         if "nai-diffusion-3" in model_name:
@@ -222,9 +235,8 @@ class SessionStateManager:
 
         # 确保索引有效
         if 1 <= selected_index <= len(artist_presets):
-            return artist_presets[selected_index - 1]["prompt"]
-        else:
-            return artist_presets[0]["prompt"] if artist_presets else None
+            return artist_presets[selected_index - 1]
+        return artist_presets[0] if artist_presets else None
 
     def _resolve_default_artist_index(
         self,
@@ -256,15 +268,15 @@ class SessionStateManager:
         return 1
 
     @staticmethod
-    def _parse_artist_presets(presets_raw: List) -> List[Dict[str, str]]:
+    def _parse_artist_presets(presets_raw: List) -> List[Dict[str, Any]]:
         """
         解析画师串预设列表，兼容新旧格式
 
-        新格式：[{"name": "风格名", "prompt": "画师串内容"}, ...]
+        新格式：[{"name": "风格名", "prompt": "画师串内容", "negative_prompt_add": "可选负面提示词"}, ...]
         旧格式：["画师串内容1", "画师串内容2", ...]
 
         Returns:
-            统一返回 [{"name": "...", "prompt": "..."}, ...]
+            统一返回 [{"name": "...", "prompt": "...", "negative_prompt_add": "..."}, ...]
         """
         if not presets_raw:
             return []
@@ -274,7 +286,11 @@ class SessionStateManager:
             if isinstance(preset, dict):
                 name = preset.get("name", f"画师串 {i}")
                 prompt = preset.get("prompt", "")
-                result.append({"name": name, "prompt": prompt})
+                normalized_preset: Dict[str, Any] = {"name": name, "prompt": prompt}
+                negative_prompt_add = str(preset.get("negative_prompt_add", "") or "").strip()
+                if negative_prompt_add:
+                    normalized_preset["negative_prompt_add"] = negative_prompt_add
+                result.append(normalized_preset)
             elif isinstance(preset, str):
                 preview = preset[:30] + "..." if len(preset) > 30 else preset
                 result.append({"name": f"#{i} {preview}", "prompt": preset})
