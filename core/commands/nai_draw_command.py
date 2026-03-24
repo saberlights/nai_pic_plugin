@@ -29,7 +29,11 @@ from ..utils.prompt_postprocessor import (
     remove_selfie_appearance_tags,
     user_mentions_appearance,
 )
-from ..utils.random_scene_description import normalize_random_scene_description
+from ..utils.random_scene_description import (
+    get_random_scene_similarity_score,
+    is_random_scene_too_similar,
+    normalize_random_scene_description,
+)
 from ..constants import NAI_PIC_IMAGE_DISPLAY_MARKER
 
 logger = get_logger("nai_pic_plugin")
@@ -45,6 +49,8 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
     # 类变量：记录最近的随机场景，避免重复
     _recent_random_scenes: list = []
     _MAX_RECENT_SCENES = 5
+    _MAX_RANDOM_SCENE_ATTEMPTS = 4
+    _RANDOM_SCENE_REPEAT_THRESHOLD = 0.6
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -321,6 +327,52 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
 
     async def _generate_random_description(self, selfie: bool = False) -> Optional[str]:
         """LLM 生成随机场景关键词"""
+        random_config = self._get_random_scene_config()
+        model_config = self._resolve_llm_model_config(
+            "",
+            override_config=random_config,
+        )
+        if not model_config:
+            return None
+
+        best_candidate: Optional[str] = None
+        best_score: Optional[float] = None
+        rejected_candidates: list[str] = []
+
+        for attempt in range(self._MAX_RANDOM_SCENE_ATTEMPTS):
+            random_prompt = self._build_random_scene_prompt(selfie=selfie, rejected_candidates=rejected_candidates)
+            result = await self._request_random_scene_candidate(random_prompt, model_config, random_config)
+            if not result:
+                continue
+
+            score = get_random_scene_similarity_score(result, NaiDrawCommand._recent_random_scenes)
+            if not is_random_scene_too_similar(
+                result,
+                NaiDrawCommand._recent_random_scenes,
+                threshold=self._RANDOM_SCENE_REPEAT_THRESHOLD,
+            ):
+                self._remember_random_scene(result)
+                return result
+
+            rejected_candidates.append(result)
+            logger.info(
+                f"{self.log_prefix} [随机场景] 第{attempt + 1}次候选与历史过近，重复分数={score:.2f}，候选={result}"
+            )
+            if best_score is None or score < best_score:
+                best_candidate = result
+                best_score = score
+
+        if best_candidate:
+            logger.warning(
+                f"{self.log_prefix} [随机场景] 多次重试后仍偏相似，使用最低重复分数候选 {best_score:.2f}: {best_candidate}"
+            )
+            self._remember_random_scene(best_candidate)
+            return best_candidate
+
+        return None
+
+    def _build_random_scene_prompt(self, selfie: bool = False, rejected_candidates: Optional[list[str]] = None) -> str:
+        """构建随机场景提示词。"""
         selfie_extra = ""
         if selfie:
             selfie_extra = (
@@ -400,13 +452,17 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
                 "不能只换地点、服装、发型、表情这种表层元素。"
             )
 
-        random_config = self._get_random_scene_config()
-        model_config = self._resolve_llm_model_config(
-            "",
-            override_config=random_config,
-        )
-        if not model_config:
-            return None
+        if rejected_candidates:
+            rejected_text = "\n".join(rejected_candidates)
+            random_prompt += (
+                "\n\n以下候选刚刚被判定为与历史题材簇过于接近，禁止继续沿着这些方向小修小补：\n"
+                f"{rejected_text}\n"
+                "下一次必须彻底切换题材簇；不要只替换地点、衣服、体位细节。"
+            )
+        return random_prompt
+
+    async def _request_random_scene_candidate(self, random_prompt: str, model_config, random_config: Dict[str, Any]) -> Optional[str]:
+        """向 LLM 请求一个随机场景候选。"""
 
         try:
             success, response, _, _ = await llm_api.generate_with_model(
@@ -425,15 +481,15 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
 
         # 清理：LLM 自行选优后，代码只取第一条有效结果
         lines = [l.strip() for l in response.strip().split("\n") if l.strip()]
-        result = normalize_random_scene_description(lines[0]) if lines else None
+        return normalize_random_scene_description(lines[0]) if lines else None
 
-        # 记录到历史，防止后续重复
-        if result:
-            NaiDrawCommand._recent_random_scenes.append(result)
-            if len(NaiDrawCommand._recent_random_scenes) > NaiDrawCommand._MAX_RECENT_SCENES:
-                NaiDrawCommand._recent_random_scenes.pop(0)
-
-        return result
+    def _remember_random_scene(self, result: str) -> None:
+        """记录随机场景历史。"""
+        if not result:
+            return
+        NaiDrawCommand._recent_random_scenes.append(result)
+        if len(NaiDrawCommand._recent_random_scenes) > NaiDrawCommand._MAX_RECENT_SCENES:
+            NaiDrawCommand._recent_random_scenes.pop(0)
 
     def _build_current_time_context(self) -> str:
         """为命令式生图提供轻量时间上下文。"""

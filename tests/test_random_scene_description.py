@@ -15,6 +15,9 @@ _mod = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_mod)  # type: ignore[union-attr]
 
 normalize_random_scene_description = _mod.normalize_random_scene_description
+build_random_scene_signature = _mod.build_random_scene_signature
+calculate_random_scene_repeat_score = _mod.calculate_random_scene_repeat_score
+is_random_scene_too_similar = _mod.is_random_scene_too_similar
 
 
 class RandomSceneDescriptionTest(unittest.TestCase):
@@ -31,6 +34,37 @@ class RandomSceneDescriptionTest(unittest.TestCase):
             normalize_random_scene_description(text),
             "2个女性 镜子自拍 俯视镜头 在床上",
         )
+
+    def test_build_signature_should_merge_medical_expansion_cluster(self):
+        signature = build_random_scene_signature("1个女性 窥器 阴道扩张 插管 手术台 拘束")
+        self.assertIn("簇:医疗拘束", signature)
+        self.assertIn("窥器", signature)
+        self.assertIn("扩张", signature)
+        self.assertIn("插管", signature)
+        self.assertIn("医疗场景", signature)
+        self.assertIn("拘束", signature)
+
+    def test_repeat_score_should_be_high_for_same_medical_cluster(self):
+        score = calculate_random_scene_repeat_score(
+            "1个女性 窥器 阴道扩张 插管 手术台 拘束",
+            "1个女性 实验室 扩张器 导尿 拘束衣 俯视",
+        )
+        self.assertGreaterEqual(score, 0.6)
+
+    def test_repeat_score_should_be_low_for_different_clusters(self):
+        score = calculate_random_scene_repeat_score(
+            "1个女性 窥器 阴道扩张 插管 手术台 拘束",
+            "1个女性 修女 教堂 颜射 口交 神像",
+        )
+        self.assertLess(score, 0.4)
+
+    def test_is_random_scene_too_similar_should_detect_cluster_repeat(self):
+        recent = [
+            "1个女性 窥器 阴道扩张 插管 手术台 拘束",
+            "1个女性 地牢 拘束 窥器 扩张",
+        ]
+        self.assertTrue(is_random_scene_too_similar("1个女性 实验室 扩张器 导尿 拘束衣", recent))
+        self.assertFalse(is_random_scene_too_similar("1个女性 修女 教堂 颜射 口交 神像", recent))
 
 
 if __name__ == "__main__":
