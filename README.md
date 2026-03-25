@@ -637,8 +637,8 @@ nai_pic_plugin/
 ├── config.toml            # 配置文件
 ├── __init__.py            # 模块初始化
 ├── _manifest.json         # 插件清单
-├── generated_images/      # 生成的图片缓存目录
 └── core/
+    ├── generated_images/  # 生成的图片缓存目录
     ├── actions/           # 动作组件（关键词触发生图）
     │   └── nai_pic_action.py
     ├── commands/          # 命令组件
