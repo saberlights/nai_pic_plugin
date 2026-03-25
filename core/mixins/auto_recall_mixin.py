@@ -7,6 +7,7 @@ from src.common.logger import get_logger
 from src.config.config import global_config
 
 from ..constants import NAI_PIC_IMAGE_DISPLAY_MARKER
+from ..utils.display_message_helper import is_nai_action_image_display_message
 
 logger = get_logger("nai_pic_plugin")
 
@@ -92,7 +93,7 @@ def _text_looks_like_image(text: str) -> bool:
     normalized = text.strip()
     if not normalized:
         return False
-    return normalized.startswith(("[图片", "[image", "[imageurl", "[picid", "picid:"))
+    return normalized.startswith(("[图片", "[NAI图片", "[image", "[imageurl", "[picid", "picid:"))
 
 
 def _is_image_message(msg: Any) -> bool:
@@ -137,11 +138,16 @@ def _is_nai_pic_plugin_image_message(msg: Any) -> bool:
 
     规则：
     - 必须是图片消息（image/imageurl/picid 等）
-    - 且 display_message 中包含本插件标记（该字段只会写入 bot 发送消息）
+    - 且 display_message 中包含本插件旧标记，或使用 action 路径的可读前缀
     """
     try:
         display_message = _extract_message_field(msg, "display_message")
-        if not isinstance(display_message, str) or NAI_PIC_IMAGE_DISPLAY_MARKER not in display_message:
+        if not isinstance(display_message, str):
+            return False
+        if (
+            NAI_PIC_IMAGE_DISPLAY_MARKER not in display_message
+            and not is_nai_action_image_display_message(display_message)
+        ):
             return False
         return _is_image_message(msg)
     except Exception:

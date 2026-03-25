@@ -78,9 +78,11 @@ core_mixins_package.__path__ = [os.path.join(PLUGIN_DIR, "core", "mixins")]
 sys.modules.setdefault("core.mixins", core_mixins_package)
 
 core_constants_module = importlib.import_module("core.constants")
+display_message_helper_module = importlib.import_module("core.utils.display_message_helper")
 auto_recall_mixin_module = importlib.import_module("core.mixins.auto_recall_mixin")
 
 NAI_PIC_IMAGE_DISPLAY_MARKER = core_constants_module.NAI_PIC_IMAGE_DISPLAY_MARKER
+build_action_image_display_message = display_message_helper_module.build_action_image_display_message
 
 AutoRecallMixin = auto_recall_mixin_module.AutoRecallMixin
 _extract_sender_user_id = auto_recall_mixin_module._extract_sender_user_id
@@ -114,6 +116,7 @@ class AutoRecallMixinUtilsTest(unittest.TestCase):
     def test_text_looks_like_image_prefix(self):
         self.assertTrue(_text_looks_like_image("[imageurl:file:///a.png]"))
         self.assertTrue(_text_looks_like_image("   [图片：xxx]"))
+        self.assertTrue(_text_looks_like_image("[NAI图片:自拍 黑丝]"))
         self.assertFalse(_text_looks_like_image("[回复<xx> 的消息：[imageurl:file:///a.png]]"))
 
     def test_is_image_message_avoid_reply_false_positive(self):
@@ -143,6 +146,11 @@ class AutoRecallMixinUtilsTest(unittest.TestCase):
             "display_message": NAI_PIC_IMAGE_DISPLAY_MARKER,
         }
         self.assertTrue(_is_nai_pic_plugin_image_message(msg_dict))
+
+    def test_is_nai_pic_plugin_image_message_action_display_message(self):
+        msg = _DummyMsg("bot", "[imageurl:file:///a.png]")
+        msg.display_message = build_action_image_display_message("自拍 黑丝 卧室")
+        self.assertTrue(_is_nai_pic_plugin_image_message(msg))
 
     def test_select_best_message_id_should_pick_closest_message_after_send_timestamp(self):
         host = _DummyRecallHost()

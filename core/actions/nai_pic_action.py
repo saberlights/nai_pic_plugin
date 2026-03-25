@@ -13,7 +13,6 @@ from src.plugin_system.apis import send_api
 
 from ..clients.nai_web_client import NaiWebClient
 from ..mixins.auto_recall_mixin import AutoRecallMixin
-from ..constants import NAI_PIC_IMAGE_DISPLAY_MARKER
 from ..utils.image_url_helper import save_base64_image_to_file
 from ..mixins.model_config_mixin import ModelConfigMixin
 from ..rules.prompt_rules import PROMPT_GENERATOR_TEMPLATE, SFW_PROMPT_GENERATOR_TEMPLATE
@@ -41,6 +40,7 @@ from ..utils.prompt_postprocessor import (
     remove_selfie_appearance_tags,
     user_mentions_appearance,
 )
+from ..utils.display_message_helper import build_action_image_display_message
 
 logger = get_logger("nai_pic_plugin")
 
@@ -204,6 +204,7 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
 
         if success:
             final_image_data = self._process_api_response(result)
+            image_display_message = build_action_image_display_message(raw_description or description)
 
             if final_image_data:
                 if final_image_data.startswith(("iVBORw", "/9j/", "UklGR", "R0lGOD")):  # Base64
@@ -215,7 +216,7 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
                             message_type="imageurl",
                             content=image_content,
                             stream_id=self.chat_id,
-                            display_message=NAI_PIC_IMAGE_DISPLAY_MARKER,
+                            display_message=image_display_message,
                         )
                     else:
                         logger.warning(f"{self.log_prefix} [LLM触发] 图片保存失败，回退为Base64发送")
@@ -223,7 +224,7 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
                             message_type="image",
                             content=final_image_data,
                             stream_id=self.chat_id,
-                            display_message=NAI_PIC_IMAGE_DISPLAY_MARKER,
+                            display_message=image_display_message,
                         )
 
                     if send_success:
@@ -242,7 +243,7 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
                             message_type="imageurl",
                             content=final_image_data,
                             stream_id=self.chat_id,
-                            display_message=NAI_PIC_IMAGE_DISPLAY_MARKER,
+                            display_message=image_display_message,
                         )
                         if send_success:
                             self._last_send_timestamp = send_time
