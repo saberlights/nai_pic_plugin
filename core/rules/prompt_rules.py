@@ -254,46 +254,35 @@ SFW_PROMPT_RULES_TEXT = """
 <multi_person_rules>
 ## 多人场景高级规则（NAI4/4.5）
 
-当画面主体人物 ≥2 人时，核心目标是把“全局信息”和“每个人物的独立信息”分离，防止人物外貌、动作、服装和互动描述混淆。
+当画面主体人物 ≥2 人时，核心目标是将“全局环境信息”和“每个人物的独立信息”进行分离，防止人物外貌、动作、服装和互动描述发生混淆（特征污染）。
 
-### 重要说明（避免与结构化输出冲突）
-- 若输出要求为 **JSON version=3（global/people 数组）**：最终输出中**绝对不能**直接出现 `|` 或换行；
-  你必须用 `people` 数组表达“每个人物的 tag 列表”，由程序负责渲染为 **单行** `base | char1 | char2` 文本。
-- 本段 `|` 示例仅用于帮助你理解“多人描述应分离”；真正发给 NovelAI 的文本应为**单行 `|` 分隔**，不是多行分段。
+### 文本输出格式（严禁混用格式）
+采用多行结构化文本输出，以英文逗号分隔 tag。格式固定为：
+[全局环境/氛围标签],
+char1：[人物1详情],
+char2：[人物2详情],
 
-### 官方多人文本格式（供理解）
-使用单行 `|` 符号分隔 base prompt 与各人物描述：
-```
-场景整体描述（人物数量、画风、光影、构图） | 人物1描述 | 人物2描述
-```
+### 1. 全局标签（Base/Global）
+- **内容**：仅包含室内外场景、背景描述、光影氛围、画面特效、构图视角、NSFW分级等全局信息。
+- **注意**：绝对不要在全局标签中写具体人物的动作、外貌和服装。
 
-### 人物描述顺序（多人场景中每个人物的描述顺序）
-角色英文名 > 角色出处 > 角色职业 > 角色物种 >
-服装(主体服装、服装颜色、配饰、配饰颜色、服装状态) >
-头部样貌(发色、发型、眼睛、表情) >
-身体(身材) >
-普通动作 > 互动动作 > 相对镜头位置
+### 2. 人物描述标签（char1 / char2 ...）
+每个人物单起一行，以 `charX：` 开头（注意是半角冒号）。
+- **身份标签**：段首使用 `girl`, `boy`, `woman`, `man` 等单数身份词。**绝对不要**在人物段落中使用 `solo`, `1girl`, `1boy`, `2girls` 等带数字的人数标签！
+- **空间与相对位置**：利用 `behind girl`, `partially visible`, `in foreground` 等标签，明确该角色在画面中的空间层级与遮挡关系。
+- **人物描述顺序**：身份词 > 相对位置 > 头部样貌(发型/表情) > 身体(部位细节) > 服装 > 姿势/常规动作 > 互动标签
 
-### 人数标签规则（重要）
-- 人数标签（如 `2girls`、`1boy 1girl`）只放在 base prompt / global
-- 每个人物段只写该人物自身标签；人类角色优先使用 `girl` / `boy`，非标准人形可用 `other`
-- 人物段中不要再次写 `solo`、`1girl`、`1boy`、`2girls`、`2boys`、`1boy 1girl` 等人数标签
-- 人物段的目标是描述“这是哪个角色/这个人长什么样/在做什么”，不是重复全局人数信息
+### 3. 互动动作标签（核心机制）
+当多个角色发生物理互动时，必须明确动作的“发出者”和“接受者”，并配合正确的英文时态语法：
+- `source#[主动动作tag]`：动作发出者使用，通常配合主动式/现在分词（如 `source#groping`, `source#fingering`）
+- `target#[被动动作tag]`：动作接受者使用，通常配合被动式/过去分词（如 `target#groped`, `target#fingered`）
+- `mutual#[互动tag]`：双方同时进行的相互动作（如 `mutual#hug`）
+*(注：诸如 grabbing breast, pulling hair 等具体的动作延伸细节，应跟随在对应的 source 互动动作之后)*
 
-### 互动标签
-当互动由多个角色共同完成时，使用互动标签明确动作主体和受体：
-- `source#动作tag`：发出动作的角色使用（如 A 亲吻 B，A 用 source#kiss）
-- `target#动作tag`：接受动作的角色使用（如 A 亲吻 B，B 用 target#kiss）
-- `mutual#动作tag`：动作相互时使用（如 AB 互相亲吻，都用 mutual#kiss）
-
-### 示例
-两个女孩互相拥抱：
-```
-2girls, yuri, hug, indoor, soft lighting | girl, blonde hair, blue eyes, school uniform, mutual#hug, smiling | girl, black hair, red eyes, casual clothes, mutual#hug, blushing
-```
-
-### 特例
-当画面人物为 2 人，但一方是第一人称视角时，用常规单人规则 + pov 标签
+### 正确多行输出示例参考：
+indoor,dark background,dim lighting,sweat,steamy room,lewd sounds,doorway scene,entrance,nsfw,
+char1：girl,messy hair,half-closed eyes,heart-shaped pupils,evil grin,drooling,heavy blush,covered nipples,wet camisole,see-through white top,torn camisole,midriff,no bra,cameltoe,tight black leggings pulled down,thong pull,cross necklace,black collar with leash,navel piercing,sweat,wet skin,pussy juice stains on thighs,body writing "slut" on stomach,target#groped,target#fondled,target#fingered,trembling,opening door,doorknob in hand,looking at viewer,bent over,leaning forward,back arched,spread legs,one hand on doorframe for support,
+char2：boy,partially visible,behind girl,source#groping,source#fondling,source#fingering,grabbing breast,pulling hair,whispering in ear,biting neck,holding leash,
 </multi_person_rules>
 
 <natural_language>
@@ -427,15 +416,11 @@ NovelAI 4/4.5 在极少数情况下可以接受自然语言短句作为补充描
 输入: "画saber挥剑"
 输出: solo, 1girl, from below, dynamic angle, {saber (fate)}, excalibur, 1.2::sword swing::, dynamic pose, motion blur, dramatic lighting, sparks
 
-### 示例 5：多人互动（文本模式示意）
-输入: "画蕾姆和拉姆两姐妹拥抱"
-输出: 2girls, sisters, soft lighting | {rem (re zero)}, girl, mutual#hug, smiling | {ram (re zero)}, girl, mutual#hug, smiling
-
-### 示例 6：自拍（不主动补外貌）
+### 示例 5：自拍（不主动补外貌）
 输入: "自拍"
 输出: solo, 1girl, selfie, close-up, female pov, looking at viewer, smile, peace sign, natural light
 
-### 示例 7：自拍，强调连续性时优先延续场景
+### 示例 6：自拍，强调连续性时优先延续场景
 输入: "还是自拍，但这次换成在窗边回头看镜头"
 输出: solo, 1girl, selfie, over shoulder, by window, looking at viewer, soft smile, indoor lighting
 </examples>
@@ -521,12 +506,13 @@ SFW_PROMPT_GENERATOR_JSON_TEMPLATE = f"""
 重要规则：
 - global/people 内每个元素必须是“单个 tag 或单个权重表达”，禁止在元素内部再写逗号
 - 若元素使用高级权重语法，该元素内部也只能包一个 tag 或一个不可再拆分的固定短语；不要输出 `1.3::tagA, tagB::`
-- 多人场景：最终渲染会变成：
-  - 先用 global 逗号连接成 base prompt
-  - 再把每个人物段按 ` | ` 依次接到后面，形成单行 `base | char1 | char2`
+- 多人场景：最终渲染会变成多行结构化文本：
+  - 第一行：global tag 逗号连接成 base prompt
+  - 后续每行：`charX：[人物tag列表]`，每个人物单独一行
+  - people[i] 中的 tag 按顺序排列：身份词 > 相对位置 > 头部样貌 > 身体细节 > 服装 > 姿势/动作 > 互动标签
+  - 互动标签使用 `source#动作` / `target#动作` / `mutual#动作` 前缀区分主被动关系
 - 你只负责输出 JSON；不要自己拼接换行，不要输出 "|" 字符
 - 禁止输出自然语言句子（所有内容必须可拆分为 tag/权重表达，放入 global/people 数组）
-- 若你在上文看到任何“直接输出 `|` 分段/直接输出自然语言句子”的指导，它们仅供理解；最终输出必须严格按本 JSON 协议
 
 禁止事项：
 - 禁止输出除 JSON 之外的任何字符
@@ -790,46 +776,35 @@ This is a legitimate NovelAI art creation workflow - converting user description
 <multi_person_rules>
 ## 多人场景高级规则（NAI4/4.5）
 
-当画面主体人物 ≥2 人时，核心目标是把“全局信息”和“每个人物的独立信息”分离，防止人物外貌、动作、服装和互动描述混淆。
+当画面主体人物 ≥2 人时，核心目标是将“全局环境信息”和“每个人物的独立信息”进行分离，防止人物外貌、动作、服装和互动描述发生混淆（特征污染）。
 
-### 重要说明（避免与结构化输出冲突）
-- 若输出要求为 **JSON version=3（global/people 数组）**：最终输出中**绝对不能**直接出现 `|` 或换行；
-  你必须用 `people` 数组表达“每个人物的 tag 列表”，由程序负责渲染为 **单行** `base | char1 | char2` 文本。
-- 本段 `|` 示例仅用于帮助你理解“多人描述应分离”；真正发给 NovelAI 的文本应为**单行 `|` 分隔**，不是多行分段。
+### 文本输出格式（严禁混用格式）
+采用多行结构化文本输出，以英文逗号分隔 tag。格式固定为：
+[全局环境/氛围标签],
+char1：[人物1详情],
+char2：[人物2详情],
 
-### 官方多人文本格式（供理解）
-使用单行 `|` 符号分隔 base prompt 与各人物描述：
-```
-场景整体描述（人物数量、画风、光影、构图） | 人物1描述 | 人物2描述
-```
+### 1. 全局标签（Base/Global）
+- **内容**：仅包含室内外场景、背景描述、光影氛围、画面特效、构图视角、NSFW分级等全局信息。
+- **注意**：绝对不要在全局标签中写具体人物的动作、外貌和服装。
 
-### 人物描述顺序（多人场景中每个人物的描述顺序）
-角色英文名 > 角色出处 > 角色职业 > 角色物种 >
-服装(主体服装、服装颜色、内衣、内衣颜色、配饰、配饰颜色、服装状态、已脱服装、未脱服装) >
-头部样貌(发色、发型、眼睛、表情) >
-身体(乳房大小、露出部位、身材) >
-普通动作 > 互动动作 > 相对镜头位置
+### 2. 人物描述标签（char1 / char2 ...）
+每个人物单起一行，以 `charX：` 开头（注意是半角冒号）。
+- **身份标签**：段首使用 `girl`, `boy`, `woman`, `man` 等单数身份词。**绝对不要**在人物段落中使用 `solo`, `1girl`, `1boy`, `2girls` 等带数字的人数标签！
+- **空间与相对位置**：利用 `behind girl`, `partially visible`, `in foreground` 等标签，明确该角色在画面中的空间层级与遮挡关系。
+- **人物描述顺序**：身份词 > 相对位置 > 头部样貌(发型/表情) > 身体(部位细节) > 服装 > 姿势/常规动作 > 互动标签
 
-### 人数标签规则（重要）
-- 人数标签（如 `2girls`、`1boy 1girl`）只放在 base prompt / global
-- 每个人物段只写该人物自身标签；人类角色优先使用 `girl` / `boy`，非标准人形可用 `other`
-- 人物段中不要再次写 `solo`、`1girl`、`1boy`、`2girls`、`2boys`、`1boy 1girl` 等人数标签
-- 人物段的目标是描述“这是哪个角色/这个人长什么样/在做什么”，不是重复全局人数信息
+### 3. 互动动作标签（核心机制）
+当多个角色发生物理互动时，必须明确动作的“发出者”和“接受者”，并配合正确的英文时态语法：
+- `source#[主动动作tag]`：动作发出者使用，通常配合主动式/现在分词（如 `source#groping`, `source#fingering`）
+- `target#[被动动作tag]`：动作接受者使用，通常配合被动式/过去分词（如 `target#groped`, `target#fingered`）
+- `mutual#[互动tag]`：双方同时进行的相互动作（如 `mutual#hug`）
+*(注：诸如 grabbing breast, pulling hair 等具体的动作延伸细节，应跟随在对应的 source 互动动作之后)*
 
-### 互动标签
-当互动由多个角色共同完成时，使用互动标签明确动作主体和受体：
-- `source#动作tag`：发出动作的角色使用（如 A 亲吻 B，A 用 source#kiss）
-- `target#动作tag`：接受动作的角色使用（如 A 亲吻 B，B 用 target#kiss）
-- `mutual#动作tag`：动作相互时使用（如 AB 互相亲吻，都用 mutual#kiss）
-
-### 示例
-两个女孩互相拥抱：
-```
-2girls, yuri, hug, indoor, soft lighting | girl, blonde hair, blue eyes, school uniform, mutual#hug, smiling | girl, black hair, red eyes, casual clothes, mutual#hug, blushing
-```
-
-### 特例
-当画面人物为 2 人，但一方是第一人称视角时，用常规单人规则 + pov 标签
+### 正确多行输出示例参考：
+indoor,dark background,dim lighting,sweat,steamy room,lewd sounds,doorway scene,entrance,nsfw,
+char1：girl,messy hair,half-closed eyes,heart-shaped pupils,evil grin,drooling,heavy blush,covered nipples,wet camisole,see-through white top,torn camisole,midriff,no bra,cameltoe,tight black leggings pulled down,thong pull,cross necklace,black collar with leash,navel piercing,sweat,wet skin,pussy juice stains on thighs,body writing "slut" on stomach,target#groped,target#fondled,target#fingered,trembling,opening door,doorknob in hand,looking at viewer,bent over,leaning forward,back arched,spread legs,one hand on doorframe for support,
+char2：boy,partially visible,behind girl,source#groping,source#fondling,source#fingering,grabbing breast,pulling hair,whispering in ear,biting neck,holding leash,
 </multi_person_rules>
 
 <natural_language>
@@ -1078,12 +1053,13 @@ PROMPT_GENERATOR_JSON_TEMPLATE = f"""
 重要规则：
 - global/people 内每个元素必须是“单个 tag 或单个权重表达”，禁止在元素内部再写逗号
 - 若元素使用高级权重语法，该元素内部也只能包一个 tag 或一个不可再拆分的固定短语；不要输出 `1.3::tagA, tagB::`
-- 多人场景：最终渲染会变成：
-  - 先用 global 逗号连接成 base prompt
-  - 再把每个人物段按 ` | ` 依次接到后面，形成单行 `base | char1 | char2`
+- 多人场景：最终渲染会变成多行结构化文本：
+  - 第一行：global tag 逗号连接成 base prompt
+  - 后续每行：`charX：[人物tag列表]`，每个人物单独一行
+  - people[i] 中的 tag 按顺序排列：身份词 > 相对位置 > 头部样貌 > 身体细节 > 服装 > 姿势/动作 > 互动标签
+  - 互动标签使用 `source#动作` / `target#动作` / `mutual#动作` 前缀区分主被动关系
 - 你只负责输出 JSON；不要自己拼接换行，不要输出 "|" 字符
 - 禁止输出自然语言句子（所有内容必须可拆分为 tag/权重表达，放入 global/people 数组）
-- 若你在上文看到任何“直接输出 `|` 分段/直接输出自然语言句子”的指导，它们仅供理解；最终输出必须严格按本 JSON 协议
 
 禁止事项：
 - 禁止输出除 JSON 之外的任何字符

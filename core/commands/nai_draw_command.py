@@ -390,7 +390,7 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
 - 结果必须具体、可视化、适合转成 Danbooru 风格标签
 - 只输出 1 行，包含 6-10 个中文短标签
 - 标签尽量简短，使用明确视觉概念，不要写成句子
-- 标签尽量覆盖人物构成、状态、核心互动、视角、场景
+- 标签尽量覆盖人数（几男几女），人物构成、状态、核心互动、视角、场景
 - 不要和最近结果过于相似，尽量主动切换题材和画面类型{selfie_extra}"""
 
         if custom_system_prompt:

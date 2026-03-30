@@ -110,6 +110,11 @@ class NaiPicPlugin(BasePlugin):
                 default="/generate",
                 description="API 端点路径"
             ),
+            "nai_proxy_mode": ConfigField(
+                type=str,
+                default="auto",
+                description="插件代理模式：auto=先继承环境代理，代理失败后回退直连；inherit=始终继承环境代理；direct=始终直连"
+            ),
         },
         "model_nai3": {
             "artist_presets": ConfigField(

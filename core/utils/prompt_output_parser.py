@@ -116,14 +116,14 @@ def _render_from_v2(obj: dict) -> Optional[str]:
             return merged if merged else first_line
         return first_line
 
-    # 多人：渲染为 NovelAI 官方推荐的单行 `base | char1 | char2`
-    segments = [first_line]
-    for person_tags in valid_people:
+    # 多人：渲染为多行结构化文本 charX：[tag列表]
+    lines = [first_line + ","]
+    for i, person_tags in enumerate(valid_people, start=1):
         person_line = _join_tags(person_tags)
         if person_line:
-            segments.append(person_line)
+            lines.append(f"char{i}：{person_line},")
 
-    return " | ".join(segments).strip()
+    return "\n".join(lines).strip()
 
 
 def parse_prompt_from_structured_output(text: str) -> Optional[str]:
