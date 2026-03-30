@@ -373,7 +373,6 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
 
     def _build_random_scene_prompt(self, selfie: bool = False, rejected_candidates: Optional[list[str]] = None) -> str:
         """构建随机场景提示词。"""
-        custom_system_prompt = self._get_custom_system_prompt_prefix()
         selfie_extra = ""
         if selfie:
             selfie_extra = (
@@ -392,9 +391,6 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
 - 标签尽量简短，使用明确视觉概念，不要写成句子
 - 标签尽量覆盖人数（几男几女），人物构成、状态、核心互动、视角、场景
 - 不要和最近结果过于相似，尽量主动切换题材和画面类型{selfie_extra}"""
-
-        if custom_system_prompt:
-            random_prompt = f"{custom_system_prompt}{random_prompt}"
 
         # 注入最近生成历史，防止重复
         if NaiDrawCommand._recent_random_scenes:
@@ -613,13 +609,6 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
     def _get_prompt_generator_config(self) -> Dict[str, Any]:
         """获取提示词生成器配置"""
         return self.get_config("prompt_generator", None) or {}
-
-    def _get_custom_system_prompt_prefix(self) -> str:
-        """获取配置中的自定义系统提示词前缀。"""
-        custom_system_prompt = self.get_config("custom_prompt.system_prompt", "") or ""
-        if not custom_system_prompt:
-            return ""
-        return custom_system_prompt.strip() + "\n\n"
 
     def _get_random_scene_config(self) -> Dict[str, Any]:
         """获取随机场景生成配置，未配置时回退到 prompt_generator"""
