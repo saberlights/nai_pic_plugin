@@ -126,6 +126,8 @@ num_inference_steps = 25
 guidance_scale = 3.5
 custom_prompt_add = "{masterpiece}, best quality, illustration"
 negative_prompt_add = "..."
+selfie_prompt_add = "..."
+selfie_negative_prompt_add = "..."
 artist_presets = [
   { name = "风格1", prompt = "artist:example1, artist:example2" },
   { name = "风格2", prompt = "artist:example3, artist:example4" }
@@ -139,6 +141,8 @@ num_inference_steps = 28
 guidance_scale = 5.0
 custom_prompt_add = ",masterpiece, best quality, absurdres"
 negative_prompt_add = "..."
+selfie_prompt_add = "..."
+selfie_negative_prompt_add = "..."
 artist_presets = [
   { name = "风格组合1", prompt = "1.2::artist1::, 1.0::artist2::" },
   { name = "风格组合2", prompt = "1.5::artist3::, 1.0::artist4::" }
@@ -152,6 +156,8 @@ num_inference_steps = 28
 guidance_scale = 5.0
 custom_prompt_add = ",masterpiece, best quality, absurdres"
 negative_prompt_add = "..."
+selfie_prompt_add = "..."
+selfie_negative_prompt_add = "..."
 artist_presets = [
   { name = "channel风", prompt = "1.4::kazutake hazano::, 1.2::efe::, ..." },
   { name = "简笔朴素", prompt = "1.2::artist:shion(mirudakemann)::, ..." }
@@ -547,7 +553,7 @@ Bot: ❌ 当前会话已开启管理员模式，仅管理员可使用此命令
 3. **NAI 格式**：如果手动编写提示词，必须使用大括号权重语法，不支持圆括号 `(keyword:1.2)` 格式
 4. **API 兼容性**：仅适用于 std.loliyc.com 等 NovelAI Web 代理接口
 5. **图片格式**：支持返回 URL 或 base64 格式
-6. **自拍模式配置**：如需使用自拍模式，建议在配置文件中设置 `selfie_prompt_add` 添加 Bot 的形象特征
+6. **自拍模式配置**：如需使用自拍模式，建议在配置文件中设置 `selfie_prompt_add` 添加 Bot 的形象特征；如需自拍专属负面词，可设置 `selfie_negative_prompt_add`，它会在触发自拍时追加到 `negative_prompt_add` 后面
 ## 常见问题
 
 ### Q: 推荐使用哪种方式？
@@ -587,7 +593,7 @@ A: 在 `/nai` 命令描述中包含自拍相关关键词即可自动触发。支
 4. 低角度仰拍
 5. 合照自拍
 
-自拍模式会自动添加配置文件中 `selfie_prompt_add` 设置的 Bot 形象特征。可通过 `selfie_appearance_policy` 配置外貌标签的处理策略。
+自拍模式会自动添加配置文件中 `selfie_prompt_add` 设置的 Bot 形象特征；如果配置了 `selfie_negative_prompt_add`，也会在触发自拍时追加到系统负面提示词后面。可通过 `selfie_appearance_policy` 配置外貌标签的处理策略。
 
 ### Q: 支持图生图吗？
 A: 不支持，本插件仅支持文生图。如需图生图，请使用 `custom_pic_plugin` 插件。

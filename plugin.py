@@ -190,6 +190,11 @@ class NaiPicPlugin(BasePlugin):
                 default="",
                 description="NAI V3 专用自拍模式提示词"
             ),
+            "selfie_negative_prompt_add": ConfigField(
+                type=str,
+                default="",
+                description="NAI V3 专用自拍模式负面提示词，会追加到 negative_prompt_add 后面"
+            ),
             "nai_extra_params": ConfigField(
                 type=dict,
                 default={},
@@ -270,6 +275,11 @@ class NaiPicPlugin(BasePlugin):
                 default="",
                 description="NAI V4 专用自拍模式提示词"
             ),
+            "selfie_negative_prompt_add": ConfigField(
+                type=str,
+                default="",
+                description="NAI V4 专用自拍模式负面提示词，会追加到 negative_prompt_add 后面"
+            ),
             "nai_extra_params": ConfigField(
                 type=dict,
                 default={},
@@ -349,6 +359,11 @@ class NaiPicPlugin(BasePlugin):
                 type=str,
                 default="",
                 description="NAI V4.5 专用自拍模式提示词"
+            ),
+            "selfie_negative_prompt_add": ConfigField(
+                type=str,
+                default="",
+                description="NAI V4.5 专用自拍模式负面提示词，会追加到 negative_prompt_add 后面"
             ),
             "nai_extra_params": ConfigField(
                 type=dict,

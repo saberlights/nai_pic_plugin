@@ -125,7 +125,7 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
             await self.send_text(f"{header}\n{show_prompt}", storage_message=False)
 
         # 获取模型配置
-        model_config = self._get_model_config()
+        model_config = self._get_model_config(is_selfie=is_selfie)
         if not model_config or not model_config.get("base_url"):
             await self.send_text("NovelAI 配置错误，请检查配置文件")
             return False, "配置错误", True
@@ -645,7 +645,7 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
         log_changes: bool = True,
     ) -> str:
         """处理自拍模式的提示词：可选移除随机外貌 + （可选）合并配置中的自拍特征"""
-        model_config = self._get_model_config()
+        model_config = self._get_model_config(is_selfie=True)
         selfie_prompt_add = model_config.get("selfie_prompt_add", "") if model_config else ""
 
         policy = (self.get_config("prompt_generator.selfie_appearance_policy", "auto") or "auto").strip().lower()

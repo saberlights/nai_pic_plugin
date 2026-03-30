@@ -168,7 +168,7 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
         # 不再默认截断提示词：多人 | 分段与权重语法很容易被截断破坏
 
         # 获取模型配置
-        model_config = self._get_model_config()
+        model_config = self._get_model_config(is_selfie=is_selfie)
         if not model_config:
             error_msg = "抱歉，NovelAI Web 图片生成功能配置无效，无法提供服务。"
             await self.send_text(error_msg)
@@ -295,7 +295,7 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
         log_changes: bool = True,
     ) -> str:
         """处理自拍模式的提示词：可选移除随机外貌 + （可选）合并配置中的自拍特征"""
-        model_config = self._get_model_config()
+        model_config = self._get_model_config(is_selfie=True)
         selfie_prompt_add = model_config.get("selfie_prompt_add", "") if model_config else ""
 
         policy = (self.get_config("prompt_generator.selfie_appearance_policy", "auto") or "auto").strip().lower()

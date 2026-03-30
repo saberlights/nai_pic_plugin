@@ -5,7 +5,7 @@
 统一处理模型/画师串选择及版本配置合并逻辑
 使用 session_state 获取会话级别的运行时状态
 """
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, Optional
 
 from src.common.logger import get_logger
 
@@ -17,7 +17,16 @@ logger = get_logger("nai_pic_plugin")
 class ModelConfigMixin:
     """为命令和动作提供统一的模型配置解析逻辑"""
 
-    def _get_model_config(self) -> Dict[str, Any]:
+    @staticmethod
+    def _merge_negative_prompts(base_negative: Any, extra_negative: Any) -> str:
+        """将额外负面提示词追加到现有负面提示词后面。"""
+        base_text = str(base_negative or "").strip()
+        extra_text = str(extra_negative or "").strip()
+        if base_text and extra_text:
+            return f"{base_text}, {extra_text}"
+        return base_text or extra_text
+
+    def _get_model_config(self, is_selfie: Optional[bool] = None) -> Dict[str, Any]:
         """
         获取合并后的模型配置
 
@@ -96,11 +105,20 @@ class ModelConfigMixin:
             ):
                 nsfw_tags = self.get_config("nsfw_filter.filter_tags", "{{{{{nsfw}}}}}")  # type: ignore[attr-defined]
                 current_negative = merged_config.get("negative_prompt_add", "")
-                if current_negative:
-                    merged_config["negative_prompt_add"] = f"{nsfw_tags}, {current_negative}"
-                else:
-                    merged_config["negative_prompt_add"] = nsfw_tags
+                merged_config["negative_prompt_add"] = self._merge_negative_prompts(
+                    nsfw_tags,
+                    current_negative,
+                )
                 logger.debug(f"{self._log_prefix} 已应用NSFW过滤: {nsfw_tags}")
+
+        if is_selfie:
+            selfie_negative = merged_config.get("selfie_negative_prompt_add", "")
+            merged_config["negative_prompt_add"] = self._merge_negative_prompts(
+                merged_config.get("negative_prompt_add", ""),
+                selfie_negative,
+            )
+            if str(selfie_negative or "").strip():
+                logger.debug(f"{self._log_prefix} 已追加自拍专属负面提示词")
 
         return merged_config
 

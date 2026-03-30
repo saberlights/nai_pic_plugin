@@ -176,6 +176,57 @@ class ArtistPresetConfigTest(unittest.TestCase):
 
         self.assertEqual(index, 2)
 
+    def test_model_config_appends_selfie_negative_prompt_when_selfie_enabled(self):
+        host = _DummyModelConfigHost({
+            "model": {
+                "base_url": "https://example.com",
+                "default_model": "nai-diffusion-4-5-full",
+            },
+            "model_nai4_5": {
+                "negative_prompt_add": "model-default-negative",
+                "selfie_negative_prompt_add": "selfie-negative",
+            },
+        })
+
+        model_config = host._get_model_config(is_selfie=True)
+
+        self.assertEqual(
+            model_config["negative_prompt_add"],
+            "model-default-negative, selfie-negative",
+        )
+
+    def test_model_config_does_not_append_selfie_negative_prompt_when_not_selfie(self):
+        host = _DummyModelConfigHost({
+            "model": {
+                "base_url": "https://example.com",
+                "default_model": "nai-diffusion-4-5-full",
+            },
+            "model_nai4_5": {
+                "negative_prompt_add": "model-default-negative",
+                "selfie_negative_prompt_add": "selfie-negative",
+            },
+        })
+
+        model_config = host._get_model_config(is_selfie=False)
+
+        self.assertEqual(model_config["negative_prompt_add"], "model-default-negative")
+
+    def test_model_config_uses_selfie_negative_prompt_alone_when_base_negative_empty(self):
+        host = _DummyModelConfigHost({
+            "model": {
+                "base_url": "https://example.com",
+                "default_model": "nai-diffusion-4-5-full",
+            },
+            "model_nai4_5": {
+                "negative_prompt_add": "",
+                "selfie_negative_prompt_add": "selfie-negative",
+            },
+        })
+
+        model_config = host._get_model_config(is_selfie=True)
+
+        self.assertEqual(model_config["negative_prompt_add"], "selfie-negative")
+
 
 if __name__ == "__main__":
     unittest.main()
