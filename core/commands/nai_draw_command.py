@@ -40,7 +40,7 @@ logger = get_logger("nai_pic_plugin")
 
 
 class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
-    """NovelAI 快速生图命令：/nai [描述]"""
+    """BestNAI 快速生图命令：/nai [描述]"""
 
     command_name = "nai_draw"
     command_description = "使用自然语言描述生成图片，例如：/nai 画一张初音未来"
@@ -127,7 +127,7 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
         # 获取模型配置
         model_config = self._get_model_config()
         if not model_config or not model_config.get("base_url"):
-            await self.send_text("NovelAI 配置错误，请检查配置文件")
+            await self.send_text("BestNAI 配置错误，请检查配置文件")
             return False, "配置错误", True
 
         # 获取图片尺寸
@@ -625,6 +625,17 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
         """处理 API 响应"""
         if not result:
             return None
+
+        markdown_data_uri_match = re.search(
+            r"!\[[^\]]*\]\(data:image/\w+;base64,([A-Za-z0-9+/=]+)\)",
+            result,
+        )
+        if markdown_data_uri_match:
+            return markdown_data_uri_match.group(1)
+
+        markdown_url_match = re.search(r"!\[[^\]]*\]\((https?://[^)]+)\)", result)
+        if markdown_url_match:
+            return markdown_url_match.group(1)
 
         if result.startswith(("http://", "https://")):
             return result

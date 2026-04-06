@@ -18,11 +18,11 @@ from .core.commands.nai_manual_recall_command import NaiManualRecallCommand
 
 @register_plugin
 class NaiPicPlugin(BasePlugin):
-    """NovelAI Web 图片生成插件，专用于 std.loliyc.com 等 NovelAI 网页代理接口"""
+    """BestNAI 图片生成插件，使用 OpenAI Chat Completions 兼容接口"""
 
     # 插件基本信息
     plugin_name = "nai_pic_plugin"
-    plugin_version = "1.1.0"
+    plugin_version = "1.2.0"
     plugin_author = "Rabbit"
     enable_plugin = True
     dependencies: List[str] = []
@@ -32,7 +32,7 @@ class NaiPicPlugin(BasePlugin):
     # 配置节描述
     config_section_descriptions = {
         "plugin": "插件基本配置",
-        "model": "NovelAI Web 连接与默认模型配置",
+        "model": "BestNAI 连接与默认模型配置",
         "prompt_generator": "提示词生成配置（/nai）",
         "prompt_generator.custom_model": "提示词生成自定义模型配置",
         "random_scene": "随机场景生成配置（/nai 随机）",
@@ -46,9 +46,9 @@ class NaiPicPlugin(BasePlugin):
         "admin": "管理员权限配置",
         "tag_retriever": "Danbooru Tag 检索增强配置",
         "custom_prompt": "自定义系统提示词配置",
-        "model_nai4_5": "NovelAI V4.5 模型专用配置（nai-diffusion-4-5-full 等最新模型）",
-        "model_nai4": "NovelAI V4 模型专用配置（nai-diffusion-4-curated、nai-diffusion-4-full 等）",
-        "model_nai3": "NovelAI V3 模型专用配置（nai-diffusion-3 和 nai-diffusion-3-furry）",
+        "model_nai4_5": "NAI V4.5 模型专用配置（nai-diffusion-4-5-*-anlas-0）",
+        "model_nai4": "NAI V4 模型专用配置（nai-diffusion-4-*-anlas-0）",
+        "model_nai3": "NAI V3 模型专用配置（nai-diffusion-3-*-anlas-0）",
     }
 
     # 配置Schema
@@ -57,7 +57,7 @@ class NaiPicPlugin(BasePlugin):
             "name": ConfigField(
                 type=str,
                 default="nai_pic_plugin",
-                description="NovelAI Web 图片生成插件",
+                description="BestNAI 图片生成插件",
                 required=True
             ),
             "config_version": ConfigField(
@@ -74,41 +74,42 @@ class NaiPicPlugin(BasePlugin):
         "model": {
             "name": ConfigField(
                 type=str,
-                default="NovelAI Web (std.loliyc.com)",
+                default="BestNAI",
                 description="模型显示名称"
             ),
             "base_url": ConfigField(
                 type=str,
-                default="https://std.loliyc.com",
-                description="NovelAI Web API 基础地址",
+                default="https://rinkoai.com",
+                description="BestNAI API 基础地址",
                 required=True
             ),
             "api_key": ConfigField(
                 type=str,
                 default="",
-                description="API Token（如需要）",
+                description="API Key（支持直接填写 Bearer 前缀或裸密钥）",
                 required=False
             ),
             "available_models": ConfigField(
                 type=list,
                 default=[
-                    "nai-diffusion-3",
-                    "nai-diffusion-3-furry",
-                    "nai-diffusion-4-curated",
-                    "nai-diffusion-4-full",
-                    "nai-diffusion-4-5-full"
+                    "nai-diffusion-3-anlas-0",
+                    "nai-diffusion-3-furry-anlas-0",
+                    "nai-diffusion-4-curated-anlas-0",
+                    "nai-diffusion-4-full-anlas-0",
+                    "nai-diffusion-4-5-curated-anlas-0",
+                    "nai-diffusion-4-5-full-anlas-0"
                 ],
-                description="可用的 NovelAI 模型列表"
+                description="可用的 BestNAI 模型列表"
             ),
             "default_model": ConfigField(
                 type=str,
-                default="nai-diffusion-4-5-full",
+                default="nai-diffusion-4-5-full-anlas-0",
                 description="当前使用的模型名称（从 available_models 中选择）"
             ),
             "nai_endpoint": ConfigField(
                 type=str,
-                default="/generate",
-                description="API 端点路径"
+                default="/v1/chat/completions",
+                description="Chat Completions API 端点路径"
             ),
             "nai_proxy_mode": ConfigField(
                 type=str,
@@ -162,7 +163,7 @@ class NaiPicPlugin(BasePlugin):
             ),
             "num_inference_steps": ConfigField(
                 type=int,
-                default=28,
+                default=23,
                 description="NAI V3 专用推理步数"
             ),
             "guidance_scale": ConfigField(
@@ -172,7 +173,7 @@ class NaiPicPlugin(BasePlugin):
             ),
             "default_size": ConfigField(
                 type=str,
-                default="1024x1280",
+                default="832x1216",
                 description="NAI V3 专用默认尺寸"
             ),
             "custom_prompt_add": ConfigField(
@@ -242,7 +243,7 @@ class NaiPicPlugin(BasePlugin):
             ),
             "num_inference_steps": ConfigField(
                 type=int,
-                default=28,
+                default=23,
                 description="NAI V4 专用推理步数"
             ),
             "guidance_scale": ConfigField(
@@ -252,7 +253,7 @@ class NaiPicPlugin(BasePlugin):
             ),
             "default_size": ConfigField(
                 type=str,
-                default="1024x1280",
+                default="832x1216",
                 description="NAI V4 专用默认尺寸"
             ),
             "custom_prompt_add": ConfigField(
@@ -322,7 +323,7 @@ class NaiPicPlugin(BasePlugin):
             ),
             "num_inference_steps": ConfigField(
                 type=int,
-                default=28,
+                default=23,
                 description="NAI V4.5 专用推理步数"
             ),
             "guidance_scale": ConfigField(
@@ -332,7 +333,7 @@ class NaiPicPlugin(BasePlugin):
             ),
             "default_size": ConfigField(
                 type=str,
-                default="1024x1280",
+                default="832x1216",
                 description="NAI V4.5 专用默认尺寸"
             ),
             "custom_prompt_add": ConfigField(

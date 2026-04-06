@@ -27,10 +27,10 @@ class NaiAdminControlCommand(BaseCommand):
 
     # 模型映射表
     MODEL_MAPPINGS = {
-        "3": "nai-diffusion-3",
-        "f3": "nai-diffusion-3-furry",
-        "4": "nai-diffusion-4-full",
-        "4.5": "nai-diffusion-4-5-full",
+        "3": "nai-diffusion-3-anlas-0",
+        "f3": "nai-diffusion-3-furry-anlas-0",
+        "4": "nai-diffusion-4-full-anlas-0",
+        "4.5": "nai-diffusion-4-5-full-anlas-0",
     }
 
     # 尺寸映射表
@@ -220,16 +220,16 @@ class NaiAdminControlCommand(BaseCommand):
             if current_model:
                 current_display = f"当前模型: {current_model}"
             else:
-                default_model = self.get_config("model.default_model", "nai-diffusion-4-5-full")
+                default_model = self.get_config("model.default_model", "nai-diffusion-4-5-full-anlas-0")
                 current_display = f"当前使用默认模型: {default_model}"
 
             await self.send_text(
                 f"{current_display}\n\n"
                 "可用模型:\n"
-                "3 - nai-diffusion-3\n"
-                "f3 - nai-diffusion-3-furry\n"
-                "4 - nai-diffusion-4-full\n"
-                "4.5 - nai-diffusion-4-5-full\n\n"
+                "3 - nai-diffusion-3-anlas-0\n"
+                "f3 - nai-diffusion-3-furry-anlas-0\n"
+                "4 - nai-diffusion-4-full-anlas-0\n"
+                "4.5 - nai-diffusion-4-5-full-anlas-0\n\n"
                 "使用方法: /nai set <模型代号>"
             )
             return True, "显示模型列表", True
@@ -238,10 +238,10 @@ class NaiAdminControlCommand(BaseCommand):
             await self.send_text(
                 f"❌ 无效的模型代号: {model_key}\n\n"
                 "可用模型:\n"
-                "3 - nai-diffusion-3\n"
-                "f3 - nai-diffusion-3-furry\n"
-                "4 - nai-diffusion-4-full\n"
-                "4.5 - nai-diffusion-4-5-full"
+                "3 - nai-diffusion-3-anlas-0\n"
+                "f3 - nai-diffusion-3-furry-anlas-0\n"
+                "4 - nai-diffusion-4-full-anlas-0\n"
+                "4.5 - nai-diffusion-4-5-full-anlas-0"
             )
             return False, "无效的模型代号", True
 
@@ -259,7 +259,7 @@ class NaiAdminControlCommand(BaseCommand):
         # 获取当前模型
         current_model = session_state.get_selected_model(platform, chat_id)
         if not current_model:
-            current_model = self.get_config("model.default_model", "nai-diffusion-4-5-full")
+            current_model = self.get_config("model.default_model", "nai-diffusion-4-5-full-anlas-0")
 
         # 根据模型确定配置节
         config_section, model_display = self._get_model_config_section(current_model)

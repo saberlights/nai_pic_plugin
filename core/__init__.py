@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-NovelAI Web 图片生成插件核心模块
+BestNAI 图片生成插件核心模块
 
 目录结构：
 - services/  : 服务层（状态管理、提示词生成、图片生成）

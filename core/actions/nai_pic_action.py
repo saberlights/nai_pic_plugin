@@ -45,7 +45,7 @@ from ..utils.display_message_helper import build_action_image_display_message
 logger = get_logger("nai_pic_plugin")
 
 class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
-    """NovelAI Web 图片生成动作"""
+    """BestNAI 图片生成动作"""
 
     # 激活设置
     activation_type = ActionActivationType.ALWAYS
@@ -94,7 +94,7 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
         self._last_structured_prompt_payload: Optional[Dict[str, Any]] = None
 
     async def execute(self) -> Tuple[bool, Optional[str]]:
-        """执行 NovelAI Web 图片生成"""
+        """执行 BestNAI 图片生成"""
         logger.info(f"{self.log_prefix} [LLM触发] 执行 /nai 动作")
 
         # 检查用户权限
@@ -170,14 +170,14 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
         # 获取模型配置
         model_config = self._get_model_config()
         if not model_config:
-            error_msg = "抱歉，NovelAI Web 图片生成功能配置无效，无法提供服务。"
+            error_msg = "抱歉，BestNAI 图片生成功能配置无效，无法提供服务。"
             await self.send_text(error_msg)
             logger.error(f"{self.log_prefix} [LLM触发] 模型配置获取失败")
             return False, "模型配置无效"
 
         # 配置验证
         if not model_config.get("base_url"):
-            error_msg = "抱歉，NovelAI Web API 地址未配置，无法提供服务。"
+            error_msg = "抱歉，BestNAI API 地址未配置，无法提供服务。"
             await self.send_text(error_msg)
             logger.error(f"{self.log_prefix} [LLM触发] base_url 未配置")
             return False, "base_url 未配置"
@@ -188,7 +188,7 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
         # 显示处理信息
         enable_debug = self.get_config("components.enable_debug_info", False)
         if enable_debug:
-            await self.send_text(f"收到！正在使用 NovelAI Web 生成图片，请稍候...")
+            await self.send_text("收到！正在使用 BestNAI 生成图片，请稍候...")
 
         try:
             # 调用API客户端生成图片（异步，不阻塞事件循环）
@@ -272,6 +272,17 @@ class NaiPicAction(ModelConfigMixin, AutoRecallMixin, BaseAction):
         """处理API响应，返回base64或URL"""
         if not result:
             return None
+
+        markdown_data_uri_match = re.search(
+            r"!\[[^\]]*\]\(data:image/\w+;base64,([A-Za-z0-9+/=]+)\)",
+            result,
+        )
+        if markdown_data_uri_match:
+            return markdown_data_uri_match.group(1)
+
+        markdown_url_match = re.search(r"!\[[^\]]*\]\((https?://[^)]+)\)", result)
+        if markdown_url_match:
+            return markdown_url_match.group(1)
 
         # 如果是URL
         if result.startswith("http://") or result.startswith("https://"):

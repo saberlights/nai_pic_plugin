@@ -1,8 +1,8 @@
 {
   "manifest_version": 1,
-  "name": "NovelAI Web 图片生成插件（nai_pic_plugin）",
-  "version": "1.1.0",
-  "description": "专用于 NovelAI Web API（如 std.loliyc.com）的图片生成插件。支持 NAI 格式提示词（大括号权重），仅支持文生图功能。适合使用 NovelAI 网页代理接口的用户。",
+  "name": "BestNAI 图片生成插件（nai_pic_plugin）",
+  "version": "1.2.0",
+  "description": "基于 BestNAI Chat Completions 兼容接口的图片生成插件。支持 NAI 格式提示词（大括号权重），仅支持文生图功能。",
   "author": {
     "name": "Rabbit",
     "url": "https://github.com/Rabbit-Jia-Er"
@@ -32,7 +32,7 @@
       {
         "type": "action",
         "name": "nai_web_draw",
-        "description": "NovelAI Web 图片生成（仅文生图）",
+        "description": "BestNAI 图片生成（仅文生图）",
         "activation_modes": [
           "keyword",
           "llm_judge"
@@ -54,7 +54,7 @@
       }
     ],
     "features": [
-      "NovelAI Web API 支持",
+      "BestNAI Chat Completions 接口支持",
       "NAI 格式提示词（大括号权重）",
       "文生图功能",
       "支持多种采样器",

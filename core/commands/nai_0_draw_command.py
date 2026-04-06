@@ -2,6 +2,7 @@
 """
 /nai0 命令：直接使用英文 tag 生成图片，不经过 LLM 处理
 """
+import re
 import time
 from typing import Tuple, Optional, Dict, Any
 
@@ -19,7 +20,7 @@ logger = get_logger("nai_pic_plugin")
 
 
 class Nai0DrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
-    """NovelAI 直接标签生图命令：/nai0 [英文tag]"""
+    """BestNAI 直接标签生图命令：/nai0 [英文tag]"""
 
     command_name = "nai_0_draw"
     command_description = "直接使用英文标签生成图片，不经过LLM处理，例如：/nai0 hatsune miku, smile"
@@ -53,7 +54,7 @@ class Nai0DrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
         # 获取模型配置
         model_config = self._get_model_config()
         if not model_config or not model_config.get("base_url"):
-            await self.send_text("NovelAI 配置错误，请检查配置文件")
+            await self.send_text("BestNAI 配置错误，请检查配置文件")
             return False, "配置错误", True
 
         # 获取图片尺寸
@@ -144,6 +145,17 @@ class Nai0DrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
         """处理 API 响应"""
         if not result:
             return None
+
+        markdown_data_uri_match = re.search(
+            r"!\[[^\]]*\]\(data:image/\w+;base64,([A-Za-z0-9+/=]+)\)",
+            result,
+        )
+        if markdown_data_uri_match:
+            return markdown_data_uri_match.group(1)
+
+        markdown_url_match = re.search(r"!\[[^\]]*\]\((https?://[^)]+)\)", result)
+        if markdown_url_match:
+            return markdown_url_match.group(1)
 
         if result.startswith(("http://", "https://")):
             return result

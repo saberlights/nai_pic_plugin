@@ -102,7 +102,7 @@ class ArtistPresetConfigTest(unittest.TestCase):
         host = _DummyModelConfigHost({
             "model": {
                 "base_url": "https://example.com",
-                "default_model": "nai-diffusion-4-5-full",
+                "default_model": "nai-diffusion-4-5-full-anlas-0",
             },
             "model_nai4_5": {
                 "negative_prompt_add": "model-default-negative",
@@ -127,7 +127,7 @@ class ArtistPresetConfigTest(unittest.TestCase):
         host = _DummyModelConfigHost({
             "model": {
                 "base_url": "https://example.com",
-                "default_model": "nai-diffusion-4-5-full",
+                "default_model": "nai-diffusion-4-5-full-anlas-0",
             },
             "model_nai4_5": {
                 "negative_prompt_add": "model-default-negative",
@@ -170,7 +170,7 @@ class ArtistPresetConfigTest(unittest.TestCase):
         index = session_state.get_effective_artist_index(
             "qq",
             "10001",
-            "nai-diffusion-4-5-full",
+            "nai-diffusion-4-5-full-anlas-0",
             get_config,
         )
 

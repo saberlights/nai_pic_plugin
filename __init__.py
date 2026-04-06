@@ -1,5 +1,5 @@
 """
-NovelAI Web 图片生成插件
+BestNAI 图片生成插件
 """
 
 from .plugin import NaiPicPlugin
