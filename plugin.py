@@ -62,13 +62,24 @@ class NaiPicPlugin(BasePlugin):
             ),
             "config_version": ConfigField(
                 type=str,
-                default="1.0.0",
+                default="1.2.0",
                 description="插件配置版本号"
+            ),
+            "version": ConfigField(
+                type=str,
+                default="1.2.0",
+                description="插件版本号"
             ),
             "enabled": ConfigField(
                 type=bool,
-                default=False,
+                default=True,
                 description="是否启用插件"
+            ),
+            "description": ConfigField(
+                type=str,
+                default="BestNAI 图片生成插件",
+                description="插件描述",
+                required=True
             )
         },
         "model": {
