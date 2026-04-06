@@ -39,9 +39,13 @@
 ## 安装与启用
 
 1. 将插件放入 `plugins/nai_pic_plugin`
-2. 安装依赖：`requests`
-3. 配置 `config.toml`
-4. 启用插件
+2. 安装依赖：`pip install -r requirements.txt`
+3. 若使用 Python 3.13，保持 `requirements.txt` 中的版本下限，不要降级 `requests` 和 `numpy`
+4. 配置 `config.toml`
+5. 启用插件
+
+`requirements.txt` 已包含 `openpyxl>=3.1.5`，这样 Python 3.13 下执行
+`core/utils/tag_data_builder.py` 时也不会缺依赖。
 
 ## 推荐配置
 

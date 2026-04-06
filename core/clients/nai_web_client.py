@@ -141,10 +141,21 @@ class NaiWebClient:
             proxy_mode = self._resolve_proxy_mode(model_config)
             response = await asyncio.to_thread(self._send_request, url, headers, payload, proxy_mode)
 
+            if 300 <= response.status_code < 400:
+                location = response.headers.get("location", "")
+                logger.error(
+                    f"{self.log_prefix} (BestNAI) 接口发生重定向: "
+                    f"status={response.status_code}, method={getattr(response.request, 'method', 'unknown')}, "
+                    f"url={getattr(response.request, 'url', url)}, location={location}"
+                )
+                return False, f"HTTP {response.status_code}: 接口发生重定向，请检查 base_url 或反向代理配置"
+
             if response.status_code != 200:
                 error_message = self._extract_error_message(response)
                 logger.error(
-                    f"{self.log_prefix} (BestNAI) HTTP错误 {response.status_code}: {error_message[:200]}"
+                    f"{self.log_prefix} (BestNAI) HTTP错误 {response.status_code}: {error_message[:200]} "
+                    f"(method={getattr(response.request, 'method', 'unknown')}, "
+                    f"url={getattr(response.request, 'url', url)})"
                 )
                 return False, f"HTTP {response.status_code}: {error_message[:100]}"
 
@@ -334,7 +345,8 @@ class NaiWebClient:
             headers=headers,
             json=payload,
             timeout=120,
-            verify=False
+            verify=False,
+            allow_redirects=False,
         )
 
     @staticmethod

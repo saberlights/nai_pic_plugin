@@ -26,8 +26,33 @@ class NaiPicPlugin(BasePlugin):
     plugin_author = "Rabbit"
     enable_plugin = True
     dependencies: List[str] = []
-    python_dependencies: List[str] = ["requests"]
+    python_dependencies: List[str] = [
+        "requests>=2.32.0",
+        "numpy>=2.1.0",
+        "openpyxl>=3.1.5",
+    ]
     config_file_name = "config.toml"
+
+    _MODEL_NAME_ALIASES = {
+        "nai-diffusion-3": "nai-diffusion-3-anlas-0",
+        "nai-diffusion-3-furry": "nai-diffusion-3-furry-anlas-0",
+        "nai-diffusion-4-curated": "nai-diffusion-4-curated-anlas-0",
+        "nai-diffusion-4-full": "nai-diffusion-4-full-anlas-0",
+        "nai-diffusion-4-5-curated": "nai-diffusion-4-5-curated-anlas-0",
+        "nai-diffusion-4-5-full": "nai-diffusion-4-5-full-anlas-0",
+    }
+    _BESTNAI_MODELS = [
+        "nai-diffusion-3-anlas-0",
+        "nai-diffusion-3-furry-anlas-0",
+        "nai-diffusion-4-curated-anlas-0",
+        "nai-diffusion-4-full-anlas-0",
+        "nai-diffusion-4-5-curated-anlas-0",
+        "nai-diffusion-4-5-full-anlas-0",
+    ]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._normalize_bestnai_config()
 
     # 配置节描述
     config_section_descriptions = {
@@ -569,6 +594,52 @@ class NaiPicPlugin(BasePlugin):
             ),
         },
     }
+
+    def _normalize_bestnai_config(self) -> None:
+        """兼容旧版本配置，统一映射到 BestNAI 新协议。"""
+        if not isinstance(self.config, dict):
+            return
+
+        model_config = self.config.get("model")
+        if not isinstance(model_config, dict):
+            return
+
+        changed = False
+
+        if model_config.get("name") == "NovelAI Web (std.loliyc.com)":
+            model_config["name"] = "BestNAI"
+            changed = True
+
+        if str(model_config.get("base_url") or "").strip() == "https://std.loliyc.com":
+            model_config["base_url"] = "https://rinkoai.com"
+            changed = True
+
+        endpoint = str(model_config.get("nai_endpoint") or "").strip()
+        if endpoint in {"", "/generate"}:
+            model_config["nai_endpoint"] = "/v1/chat/completions"
+            changed = True
+
+        default_model = str(model_config.get("default_model") or "").strip()
+        mapped_default_model = self._MODEL_NAME_ALIASES.get(default_model)
+        if mapped_default_model:
+            model_config["default_model"] = mapped_default_model
+            changed = True
+
+        available_models = model_config.get("available_models")
+        if isinstance(available_models, list):
+            normalized_models = [self._MODEL_NAME_ALIASES.get(str(item), str(item)) for item in available_models]
+            if normalized_models != available_models:
+                model_config["available_models"] = normalized_models
+                changed = True
+
+        if model_config.get("available_models") != self._BESTNAI_MODELS:
+            model_config["available_models"] = list(self._BESTNAI_MODELS)
+            changed = True
+
+        if changed:
+            self.config["model"] = model_config
+            config_file_path = f"{self.plugin_dir}/{self.config_file_name}"
+            self._save_config_to_file(self.config, config_file_path)
 
     def get_plugin_components(self) -> List[Tuple[ComponentInfo, Type]]:
         """返回插件包含的组件列表"""
