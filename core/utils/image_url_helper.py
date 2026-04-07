@@ -8,8 +8,9 @@ from src.common.logger import get_logger
 
 logger = get_logger("nai_pic_plugin")
 
-_BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_IMAGE_OUTPUT_DIR = os.path.join(_BASE_DIR, "generated_images")
+_PLUGIN_ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+_PROJECT_ROOT_DIR = os.path.abspath(os.path.join(_PLUGIN_ROOT_DIR, "..", ".."))
+_IMAGE_OUTPUT_DIR = os.path.join(_PROJECT_ROOT_DIR, "data", "nai_pic_plugin", "generated_images")
 os.makedirs(_IMAGE_OUTPUT_DIR, exist_ok=True)
 _MAX_FILE_AGE_SECONDS = 30 * 60  # 30分钟保留时间
 _MAX_FILE_COUNT = 80  # 限制缓存文件数量
