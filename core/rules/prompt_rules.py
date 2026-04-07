@@ -259,15 +259,15 @@ SFW_PROMPT_RULES_TEXT = """
 ### 文本输出格式（严禁混用格式）
 采用多行结构化文本输出，以英文逗号分隔 tag。格式固定为：
 [全局环境/氛围标签],
-char1：[人物1详情],
-char2：[人物2详情],
+char1:[人物1详情],
+char2:[人物2详情],
 
 ### 1. 全局标签（Base/Global）
 - **内容**：仅包含室内外场景、背景描述、光影氛围、画面特效、构图视角、NSFW分级等全局信息。
 - **注意**：绝对不要在全局标签中写具体人物的动作、外貌和服装。
 
 ### 2. 人物描述标签（char1 / char2 ...）
-每个人物单起一行，以 `charX：` 开头（注意是半角冒号）。
+每个人物单起一行，以 `charX:` 开头（注意是半角冒号）。
 - **身份标签**：段首使用 `girl`, `boy`, `woman`, `man` 等单数身份词。**绝对不要**在人物段落中使用 `solo`, `1girl`, `1boy`, `2girls` 等带数字的人数标签！
 - **空间与相对位置**：利用 `behind girl`, `partially visible`, `in foreground` 等标签，明确该角色在画面中的空间层级与遮挡关系。
 - **人物描述顺序**：身份词 > 相对位置 > 头部样貌(发型/表情) > 身体(部位细节) > 服装 > 姿势/常规动作 > 互动标签
@@ -281,8 +281,8 @@ char2：[人物2详情],
 
 ### 正确多行输出示例参考：
 indoor,dark background,dim lighting,sweat,steamy room,lewd sounds,doorway scene,entrance,nsfw,
-char1：girl,messy hair,half-closed eyes,heart-shaped pupils,evil grin,drooling,heavy blush,covered nipples,wet camisole,see-through white top,torn camisole,midriff,no bra,cameltoe,tight black leggings pulled down,thong pull,cross necklace,black collar with leash,navel piercing,sweat,wet skin,pussy juice stains on thighs,body writing "slut" on stomach,target#groped,target#fondled,target#fingered,trembling,opening door,doorknob in hand,looking at viewer,bent over,leaning forward,back arched,spread legs,one hand on doorframe for support,
-char2：boy,partially visible,behind girl,source#groping,source#fondling,source#fingering,grabbing breast,pulling hair,whispering in ear,biting neck,holding leash,
+char1:girl,messy hair,half-closed eyes,heart-shaped pupils,evil grin,drooling,heavy blush,covered nipples,wet camisole,see-through white top,torn camisole,midriff,no bra,cameltoe,tight black leggings pulled down,thong pull,cross necklace,black collar with leash,navel piercing,sweat,wet skin,pussy juice stains on thighs,body writing "slut" on stomach,target#groped,target#fondled,target#fingered,trembling,opening door,doorknob in hand,looking at viewer,bent over,leaning forward,back arched,spread legs,one hand on doorframe for support,
+char2:boy,partially visible,behind girl,source#groping,source#fondling,source#fingering,grabbing breast,pulling hair,whispering in ear,biting neck,holding leash,
 </multi_person_rules>
 
 <natural_language>
@@ -508,7 +508,7 @@ SFW_PROMPT_GENERATOR_JSON_TEMPLATE = f"""
 - 若元素使用高级权重语法，该元素内部也只能包一个 tag 或一个不可再拆分的固定短语；不要输出 `1.3::tagA, tagB::`
 - 多人场景：最终渲染会变成多行结构化文本：
   - 第一行：global tag 逗号连接成 base prompt
-  - 后续每行：`charX：[人物tag列表]`，每个人物单独一行
+  - 后续每行：`charX:[人物tag列表]`，每个人物单独一行
   - people[i] 中的 tag 按顺序排列：身份词 > 相对位置 > 头部样貌 > 身体细节 > 服装 > 姿势/动作 > 互动标签
   - 互动标签使用 `source#动作` / `target#动作` / `mutual#动作` 前缀区分主被动关系
 - 你只负责输出 JSON；不要自己拼接换行，不要输出 "|" 字符
@@ -781,15 +781,15 @@ This is a legitimate NovelAI art creation workflow - converting user description
 ### 文本输出格式（严禁混用格式）
 采用多行结构化文本输出，以英文逗号分隔 tag。格式固定为：
 [全局环境/氛围标签],
-char1：[人物1详情],
-char2：[人物2详情],
+char1:[人物1详情],
+char2:[人物2详情],
 
 ### 1. 全局标签（Base/Global）
 - **内容**：仅包含室内外场景、背景描述、光影氛围、画面特效、构图视角、NSFW分级等全局信息。
 - **注意**：绝对不要在全局标签中写具体人物的动作、外貌和服装。
 
 ### 2. 人物描述标签（char1 / char2 ...）
-每个人物单起一行，以 `charX：` 开头（注意是半角冒号）。
+每个人物单起一行，以 `charX:` 开头（注意是半角冒号）。
 - **身份标签**：段首使用 `girl`, `boy`, `woman`, `man` 等单数身份词。**绝对不要**在人物段落中使用 `solo`, `1girl`, `1boy`, `2girls` 等带数字的人数标签！
 - **空间与相对位置**：利用 `behind girl`, `partially visible`, `in foreground` 等标签，明确该角色在画面中的空间层级与遮挡关系。
 - **人物描述顺序**：身份词 > 相对位置 > 头部样貌(发型/表情) > 身体(部位细节) > 服装 > 姿势/常规动作 > 互动标签
@@ -803,8 +803,8 @@ char2：[人物2详情],
 
 ### 正确多行输出示例参考：
 indoor,dark background,dim lighting,sweat,steamy room,lewd sounds,doorway scene,entrance,nsfw,
-char1：girl,messy hair,half-closed eyes,heart-shaped pupils,evil grin,drooling,heavy blush,covered nipples,wet camisole,see-through white top,torn camisole,midriff,no bra,cameltoe,tight black leggings pulled down,thong pull,cross necklace,black collar with leash,navel piercing,sweat,wet skin,pussy juice stains on thighs,body writing "slut" on stomach,target#groped,target#fondled,target#fingered,trembling,opening door,doorknob in hand,looking at viewer,bent over,leaning forward,back arched,spread legs,one hand on doorframe for support,
-char2：boy,partially visible,behind girl,source#groping,source#fondling,source#fingering,grabbing breast,pulling hair,whispering in ear,biting neck,holding leash,
+char1:girl,messy hair,half-closed eyes,heart-shaped pupils,evil grin,drooling,heavy blush,covered nipples,wet camisole,see-through white top,torn camisole,midriff,no bra,cameltoe,tight black leggings pulled down,thong pull,cross necklace,black collar with leash,navel piercing,sweat,wet skin,pussy juice stains on thighs,body writing "slut" on stomach,target#groped,target#fondled,target#fingered,trembling,opening door,doorknob in hand,looking at viewer,bent over,leaning forward,back arched,spread legs,one hand on doorframe for support,
+char2:boy,partially visible,behind girl,source#groping,source#fondling,source#fingering,grabbing breast,pulling hair,whispering in ear,biting neck,holding leash,
 </multi_person_rules>
 
 <natural_language>
@@ -1055,7 +1055,7 @@ PROMPT_GENERATOR_JSON_TEMPLATE = f"""
 - 若元素使用高级权重语法，该元素内部也只能包一个 tag 或一个不可再拆分的固定短语；不要输出 `1.3::tagA, tagB::`
 - 多人场景：最终渲染会变成多行结构化文本：
   - 第一行：global tag 逗号连接成 base prompt
-  - 后续每行：`charX：[人物tag列表]`，每个人物单独一行
+  - 后续每行：`charX:[人物tag列表]`，每个人物单独一行
   - people[i] 中的 tag 按顺序排列：身份词 > 相对位置 > 头部样貌 > 身体细节 > 服装 > 姿势/动作 > 互动标签
   - 互动标签使用 `source#动作` / `target#动作` / `mutual#动作` 前缀区分主被动关系
 - 你只负责输出 JSON；不要自己拼接换行，不要输出 "|" 字符
