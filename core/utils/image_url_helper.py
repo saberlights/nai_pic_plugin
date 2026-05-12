@@ -1,9 +1,9 @@
+from typing import List, Optional, Tuple
+
 import base64
-import imghdr
 import os
 import time
 import uuid
-from typing import Optional, List, Tuple
 
 from src.common.logger import get_logger
 
@@ -16,6 +16,48 @@ _MAX_FILE_AGE_SECONDS = 30 * 60  # 30分钟保留时间
 _MAX_FILE_COUNT = 80  # 限制缓存文件数量
 _CLEANUP_INTERVAL_SECONDS = 5 * 60  # 每5分钟尝试清理一次
 _last_cleanup_ts = 0.0
+
+
+def _detect_image_type_from_header(image_base64: str) -> Optional[str]:
+    if not image_base64.startswith("data:image/"):
+        return None
+
+    header = image_base64.split(",", 1)[0]
+    image_type = header[len("data:image/") :].split(";", 1)[0].lower()
+
+    if image_type == "jpg":
+        return "jpeg"
+
+    if image_type in {"bmp", "gif", "jpeg", "png", "svg+xml", "tiff", "webp"}:
+        return image_type
+
+    return None
+
+
+def _detect_image_type_from_bytes(image_bytes: bytes) -> str:
+    if image_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "png"
+
+    if image_bytes.startswith(b"\xff\xd8\xff"):
+        return "jpeg"
+
+    if image_bytes.startswith((b"GIF87a", b"GIF89a")):
+        return "gif"
+
+    if image_bytes.startswith(b"RIFF") and image_bytes[8:12] == b"WEBP":
+        return "webp"
+
+    if image_bytes.startswith(b"BM"):
+        return "bmp"
+
+    if image_bytes.startswith((b"II*\x00", b"MM\x00*")):
+        return "tiff"
+
+    stripped_bytes = image_bytes.lstrip()
+    if stripped_bytes.startswith(b"<?xml") or stripped_bytes.startswith(b"<svg"):
+        return "svg+xml"
+
+    return "png"
 
 
 def _maybe_cleanup_generated_files():
@@ -81,7 +123,9 @@ def save_base64_image_to_file(image_base64: str) -> Optional[str]:
         logger.error(f"[nai_pic] 解码Base64图片失败: {e}")
         return None
 
-    image_type = imghdr.what(None, h=image_bytes) or "png"
+    image_type = _detect_image_type_from_header(image_base64) or _detect_image_type_from_bytes(image_bytes)
+    if image_type == "svg+xml":
+        image_type = "svg"
     extension = "jpg" if image_type == "jpeg" else image_type
     file_name = f"nai_{int(time.time() * 1000)}_{uuid.uuid4().hex[:6]}.{extension}"
     file_path = os.path.join(_IMAGE_OUTPUT_DIR, file_name)

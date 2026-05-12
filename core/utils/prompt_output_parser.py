@@ -116,12 +116,12 @@ def _render_from_v2(obj: dict) -> Optional[str]:
             return merged if merged else first_line
         return first_line
 
-    # 多人：渲染为多行结构化文本 charX：[tag列表]
+    # 多人：渲染为多行结构化文本 charX:[tag列表]
     lines = [first_line + ","]
     for i, person_tags in enumerate(valid_people, start=1):
         person_line = _join_tags(person_tags)
         if person_line:
-            lines.append(f"char{i}：{person_line},")
+            lines.append(f"char{i}:{person_line},")
 
     return "\n".join(lines).strip()
 

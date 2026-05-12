@@ -57,7 +57,7 @@ class PromptOutputParserTest(unittest.TestCase):
         )
         self.assertEqual(
             parse_prompt_from_structured_output(text),
-            "2girls, street, day, year 2024 | girl a, smile | girl b, smile"
+            "2girls, street, day, year 2024,\nchar1:girl a, smile,\nchar2:girl b, smile,"
         )
 
     def test_parse_v3_arrays_single(self):

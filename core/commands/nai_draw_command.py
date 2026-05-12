@@ -27,6 +27,7 @@ from ..utils.prompt_output_parser import parse_prompt_from_structured_output
 from ..utils.prompt_postprocessor import (
     normalize_prompt_order,
     remove_selfie_appearance_tags,
+    sanitize_sfw_prompt,
     user_mentions_appearance,
 )
 from ..utils.random_scene_description import (
@@ -44,7 +45,7 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
 
     command_name = "nai_draw"
     command_description = "使用自然语言描述生成图片，例如：/nai 画一张初音未来"
-    command_pattern = r"(?:.*，说：\s*)?/nai\s+(?!on$|off$|st$|sp$|set\b|art\b|artgen\b|artr$|artfix\b|size\b|help$|pt\s|nsfw\b|撤回(?:\s|$))(?P<description>.+)$"
+    command_pattern = r"(?:.*，说：\s*)?/nai\s+(?!on$|off$|st$|sp$|set\b|art\b|artgen\b|artr$|artfix\b|size\b|help$|pt\s|nsfw\b|撤回(?:\s|$))(?P<description>[\s\S]+)$"
 
     # 类变量：记录最近的随机场景，避免重复
     _recent_random_scenes: list = []
@@ -108,6 +109,13 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
         if self.get_config("prompt_generator.enforce_tag_order", False):
             generated_prompt = normalize_prompt_order(generated_prompt)
 
+        try:
+            platform, chat_id, _ = self._get_chat_identity()
+            if platform and chat_id and session_state.is_nsfw_filter_enabled(platform, chat_id, self.get_config):
+                generated_prompt = sanitize_sfw_prompt(generated_prompt)
+        except Exception:
+            pass
+
         logger.info(f"{self.log_prefix} [LLM生图] 最终提示词: {generated_prompt}")
 
         # 检查是否需要显示提示词
@@ -122,6 +130,12 @@ class NaiDrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
                     log_changes=False,
                 )
                 header = "📝 提示词(已隐藏自拍补充):"
+            try:
+                platform, chat_id, _ = self._get_chat_identity()
+                if platform and chat_id and session_state.is_nsfw_filter_enabled(platform, chat_id, self.get_config):
+                    show_prompt = sanitize_sfw_prompt(show_prompt)
+            except Exception:
+                pass
             await self.send_text(f"{header}\n{show_prompt}", storage_message=False)
 
         # 获取模型配置

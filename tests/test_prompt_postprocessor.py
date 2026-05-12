@@ -16,6 +16,7 @@ _spec.loader.exec_module(_mod)  # type: ignore[union-attr]
 
 normalize_prompt_order = _mod.normalize_prompt_order
 remove_selfie_appearance_tags = _mod.remove_selfie_appearance_tags
+sanitize_sfw_prompt = _mod.sanitize_sfw_prompt
 user_mentions_appearance = _mod.user_mentions_appearance
 
 
@@ -43,6 +44,11 @@ class PromptPostprocessorTest(unittest.TestCase):
         out = remove_selfie_appearance_tags(s)
         self.assertEqual(out, "2girls, street, year 2024 | girl a, smile | girl b, smile")
 
+    def test_remove_selfie_appearance_preserves_trailing_commas_in_char_blocks(self):
+        s = "2players, kissing, year 2026,\nchar1:man, black hair, smile,\nchar2:girl, blue eyes, smile,"
+        out = remove_selfie_appearance_tags(s)
+        self.assertEqual(out, "2players, kissing, year 2026,\nchar1:man, smile,\nchar2:girl, smile,")
+
     def test_normalize_prompt_order_year_last(self):
         s = "year 2024, smile, solo, pov, 1girl"
         out = normalize_prompt_order(s)
@@ -52,6 +58,16 @@ class PromptPostprocessorTest(unittest.TestCase):
         s = "2girls, year 2024, street | smile, black hair | looking at viewer, blue eyes"
         out = normalize_prompt_order(s)
         self.assertEqual(out, "2girls, street, year 2024 | smile, black hair | looking at viewer, blue eyes")
+
+    def test_normalize_prompt_order_preserves_trailing_commas_in_char_blocks(self):
+        s = "close-up, 2players, year 2026,\nchar1:man, smile,\nchar2:girl, looking up,"
+        out = normalize_prompt_order(s)
+        self.assertEqual(out, "close-up, 2players, year 2026,\nchar1:man, smile,\nchar2:girl, looking up,")
+
+    def test_sanitize_sfw_prompt_preserves_trailing_commas_in_char_blocks(self):
+        s = "close-up, 2players, year 2026,\nchar1:man, nsfw, smile,\nchar2:girl, nsfw, blush,"
+        out = sanitize_sfw_prompt(s)
+        self.assertEqual(out, "close-up, 2players, year 2026,\nchar1:man, smile,\nchar2:girl, blush,")
 
 
 if __name__ == "__main__":

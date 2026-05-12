@@ -5,16 +5,18 @@ Danbooru Tag 检索服务
 通过项目的 embedding API 对 tag 中文描述做 embedding，
 提供余弦相似度检索，返回与用户查询最相关的候选 tag。
 """
+
 import asyncio
 import json
 import os
-from typing import List, Dict, Optional
+from typing import Dict, List, Optional
 
 import numpy as np
 
 from src.common.logger import get_logger
-from src.llm_models.utils_model import LLMRequest
 from src.config.config import model_config
+
+from ...legacy_llm_request import LegacyLLMRequest
 
 logger = get_logger("nai_pic_plugin")
 
@@ -43,6 +45,11 @@ class TagRetriever:
         self._tags: List[Dict[str, str]] = []
         self._embeddings: Optional[np.ndarray] = None
         self._loaded = False
+
+    def update_runtime_config(self, *, top_k: int, min_score: float) -> None:
+        """更新运行时检索参数，供插件热重载后复用缓存实例。"""
+        self.top_k = top_k
+        self.min_score = min_score
 
     async def _ensure_loaded(self):
         """懒加载：首次调用时加载数据和 embeddings"""
@@ -95,7 +102,7 @@ class TagRetriever:
     async def _get_embedding(self, text: str) -> Optional[List[float]]:
         """通过项目 API 获取单条文本的 embedding"""
         embedding_config = model_config.model_task_config.embedding
-        llm = LLMRequest(model_set=embedding_config, request_type="embedding")
+        llm = LegacyLLMRequest(model_set=embedding_config, request_type="embedding")
         try:
             embedding, _ = await llm.get_embedding(text)
             return embedding
@@ -275,6 +282,30 @@ class TagRetriever:
 _instance: Optional[TagRetriever] = None
 
 
+def _normalize_top_k(top_k: int) -> int:
+    """标准化 top_k，避免热更新时传入非法值。"""
+    try:
+        normalized = int(top_k)
+    except (TypeError, ValueError):
+        return 20
+    return max(1, normalized)
+
+
+def _normalize_min_score(min_score: float) -> float:
+    """标准化 min_score，避免热更新时传入非法值。"""
+    try:
+        normalized = float(min_score)
+    except (TypeError, ValueError):
+        return 0.3
+    return max(0.0, normalized)
+
+
+def reset_tag_retriever() -> None:
+    """重置模块级单例，供插件卸载或热重载时清空旧实例。"""
+    global _instance
+    _instance = None
+
+
 def get_tag_retriever(
     enabled: bool = True,
     top_k: int = 20,
@@ -284,6 +315,12 @@ def get_tag_retriever(
     global _instance
     if not enabled:
         return None
+    normalized_top_k = _normalize_top_k(top_k)
+    normalized_min_score = _normalize_min_score(min_score)
     if _instance is None:
-        _instance = TagRetriever(top_k=top_k, min_score=min_score)
+        _instance = TagRetriever(top_k=normalized_top_k, min_score=normalized_min_score)
+        return _instance
+
+    if _instance.top_k != normalized_top_k or abs(_instance.min_score - normalized_min_score) > 1e-9:
+        _instance.update_runtime_config(top_k=normalized_top_k, min_score=normalized_min_score)
     return _instance

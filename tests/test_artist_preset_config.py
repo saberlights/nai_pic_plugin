@@ -147,6 +147,30 @@ class ArtistPresetConfigTest(unittest.TestCase):
         self.assertEqual(model_config["nai_artist_prompt"], "artist:a")
         self.assertEqual(model_config["negative_prompt_add"], "model-default-negative")
 
+    def test_model_config_can_apply_artist_preset_for_direct_tag_command(self):
+        host = _DummyModelConfigHost({
+            "model": {
+                "base_url": "https://example.com",
+                "default_model": "nai-diffusion-4-5-full",
+            },
+            "model_nai4_5": {
+                "negative_prompt_add": "model-default-negative",
+                "artist_presets": [
+                    {
+                        "name": "风格A",
+                        "prompt": "artist:a",
+                        "negative_prompt_add": "preset-negative",
+                    },
+                ],
+                "default_artist_preset": 1,
+            },
+        })
+
+        model_config = host._get_model_config()
+
+        self.assertEqual(model_config["nai_artist_prompt"], "artist:a")
+        self.assertEqual(model_config["negative_prompt_add"], "preset-negative")
+
     def test_effective_artist_index_uses_config_default_when_session_not_overridden(self):
         config = {
             "model_nai4_5": {
@@ -192,7 +216,7 @@ class ArtistPresetConfigTest(unittest.TestCase):
 
         self.assertEqual(
             model_config["negative_prompt_add"],
-            "model-default-negative, selfie-negative",
+            "selfie-negative, model-default-negative",
         )
 
     def test_model_config_does_not_append_selfie_negative_prompt_when_not_selfie(self):

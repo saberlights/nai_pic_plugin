@@ -397,9 +397,10 @@ class NaiTaggerCommand(BaseCommand):
 
         注意：这里用的是 TaskConfig（model_config.model_task_config.<name>），由 config.toml 控制 name。
         """
+        from ...legacy_llm_request import LegacyLLMRequest
+
         from src.config.config import model_config
-        from src.llm_models.utils_model import LLMRequest
-        from src.config.api_ada_configs import TaskConfig
+        from src.config.model_configs import TaskConfig
 
         model_task_config = getattr(model_config, "model_task_config", None)
         if not model_task_config:
@@ -432,7 +433,7 @@ class NaiTaggerCommand(BaseCommand):
 
         effective_max_tokens = self._cap_max_tokens(task_cfg, int(max_tokens or 0) or 1200)
 
-        req = LLMRequest(model_set=task_cfg, request_type="nai_pic_plugin.tagger")
+        req = LegacyLLMRequest(model_set=task_cfg, request_type="nai_pic_plugin.tagger")
         content, _ = await req.generate_response_for_image(
             prompt=prompt,
             image_base64=image_base64,

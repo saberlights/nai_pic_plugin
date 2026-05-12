@@ -26,7 +26,12 @@ class ModelConfigMixin:
             return f"{base_text}, {extra_text}"
         return base_text or extra_text
 
-    def _get_model_config(self, is_selfie: Optional[bool] = None) -> Dict[str, Any]:
+    def _get_model_config(
+        self,
+        is_selfie: Optional[bool] = None,
+        *,
+        apply_artist_preset: bool = True,
+    ) -> Dict[str, Any]:
         """
         获取合并后的模型配置
 
@@ -74,7 +79,7 @@ class ModelConfigMixin:
                     merged_config[key] = value
 
         # 应用会话级别的画师串选择
-        if platform and chat_id and model_name:
+        if apply_artist_preset and platform and chat_id and model_name:
             selected_artist = session_state.get_selected_artist_preset_config(
                 platform, chat_id, model_name, self.get_config  # type: ignore[attr-defined]
             )
@@ -98,7 +103,19 @@ class ModelConfigMixin:
                 merged_config["nai_size"] = selected_size
                 logger.debug(f"{self._log_prefix} 使用会话选定的尺寸: {selected_size}")
 
-        # 应用 NSFW 过滤
+        # 自拍专属负面先合并：放到通用负面之前，确保自拍形象反向锁
+        # （hair behind back / side parting / asymmetrical hair 等）享有高优先级
+        # NAI 4/4.5 负面同样遵循"越前越高优先级"
+        if is_selfie:
+            selfie_negative = merged_config.get("selfie_negative_prompt_add", "")
+            merged_config["negative_prompt_add"] = self._merge_negative_prompts(
+                selfie_negative,
+                merged_config.get("negative_prompt_add", ""),
+            )
+            if str(selfie_negative or "").strip():
+                logger.debug(f"{self._log_prefix} 已追加自拍专属负面提示词")
+
+        # 应用 NSFW 过滤（最后合并 → 拼到最前 → 永远享有最高优先级）
         if platform and chat_id:
             if session_state.is_nsfw_filter_enabled(
                 platform, chat_id, self.get_config  # type: ignore[attr-defined]
@@ -110,15 +127,6 @@ class ModelConfigMixin:
                     current_negative,
                 )
                 logger.debug(f"{self._log_prefix} 已应用NSFW过滤: {nsfw_tags}")
-
-        if is_selfie:
-            selfie_negative = merged_config.get("selfie_negative_prompt_add", "")
-            merged_config["negative_prompt_add"] = self._merge_negative_prompts(
-                merged_config.get("negative_prompt_add", ""),
-                selfie_negative,
-            )
-            if str(selfie_negative or "").strip():
-                logger.debug(f"{self._log_prefix} 已追加自拍专属负面提示词")
 
         return merged_config
 

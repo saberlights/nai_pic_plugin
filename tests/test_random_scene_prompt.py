@@ -148,6 +148,7 @@ sys.modules["core.utils.prompt_output_parser"] = prompt_output_parser_module
 prompt_postprocessor_module = types.ModuleType("core.utils.prompt_postprocessor")
 prompt_postprocessor_module.normalize_prompt_order = lambda prompt: prompt
 prompt_postprocessor_module.remove_selfie_appearance_tags = lambda prompt: prompt
+prompt_postprocessor_module.sanitize_sfw_prompt = lambda prompt: prompt
 prompt_postprocessor_module.user_mentions_appearance = lambda *_args, **_kwargs: False
 sys.modules["core.utils.prompt_postprocessor"] = prompt_postprocessor_module
 

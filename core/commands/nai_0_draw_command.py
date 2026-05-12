@@ -23,7 +23,7 @@ class Nai0DrawCommand(ModelConfigMixin, AutoRecallMixin, BaseCommand):
 
     command_name = "nai_0_draw"
     command_description = "直接使用英文标签生成图片，不经过LLM处理，例如：/nai0 hatsune miku, smile"
-    command_pattern = r"(?:.*，说：\s*)?/nai0\s+(?P<tags>.+)$"
+    command_pattern = r"(?:.*，说：\s*)?/nai0\s+(?P<tags>[\s\S]+)$"
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

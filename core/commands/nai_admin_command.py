@@ -31,6 +31,8 @@ class NaiAdminControlCommand(BaseCommand):
         "f3": "nai-diffusion-3-furry",
         "4": "nai-diffusion-4-full",
         "4.5": "nai-diffusion-4-5-full",
+        "4.5p": "nai-diffusion-4-5-curated-anlas-0",
+        "4.5-preview": "nai-diffusion-4-5-curated-anlas-0",
     }
 
     # 尺寸映射表
@@ -71,14 +73,17 @@ class NaiAdminControlCommand(BaseCommand):
         # 检查管理员权限
         is_admin = session_state.is_admin_user(user_id, self.get_config)
 
-        # st/sp 操作始终需要管理员权限
-        if action in ["st", "sp"]:
+        # st/sp/set 操作始终需要管理员权限
+        if action in ["st", "sp", "set"]:
             if not is_admin:
+                if action == "set":
+                    await self.send_text("❌ 只有管理员可以切换生图模型", storage_message=False)
+                    return False, "没有管理员权限", True
                 await self.send_text("❌ 只有管理员可以开启/关闭管理员模式", storage_message=False)
                 return False, "没有管理员权限", True
 
-        # set/art/size 操作根据管理员模式状态判断
-        elif action in ["set", "art", "size"]:
+        # art/size 操作根据管理员模式状态判断
+        elif action in ["art", "size"]:
             if session_state.is_admin_mode_enabled(platform, chat_id, self.get_config):
                 if not is_admin:
                     return False, "没有权限", True
@@ -164,11 +169,11 @@ class NaiAdminControlCommand(BaseCommand):
 /nai0 <英文标签> - 直接使用英文标签生成图片
   示例：/nai0 1girl, hatsune miku, smile
 
-【模型管理】
+【模型管理】（仅管理员可用）
 /nai set - 查看当前模型和可用模型列表
 /nai set <代号> - 切换生图模型
-  可用模型：3=V3, f3=Furry V3, 4=V4, 4.5=V4.5
-  示例：/nai set 4.5
+  可用模型：3=V3, f3=Furry V3, 4=V4, 4.5=V4.5 Full, 4.5p=V4.5 Preview
+  示例：/nai set 4.5p
 
 【画师风格预设】
 /nai art - 查看当前画师串列表
@@ -229,7 +234,8 @@ class NaiAdminControlCommand(BaseCommand):
                 "3 - nai-diffusion-3\n"
                 "f3 - nai-diffusion-3-furry\n"
                 "4 - nai-diffusion-4-full\n"
-                "4.5 - nai-diffusion-4-5-full\n\n"
+                "4.5 - nai-diffusion-4-5-full\n"
+                "4.5p - nai-diffusion-4-5-curated-anlas-0 (Preview)\n\n"
                 "使用方法: /nai set <模型代号>"
             )
             return True, "显示模型列表", True
@@ -241,7 +247,8 @@ class NaiAdminControlCommand(BaseCommand):
                 "3 - nai-diffusion-3\n"
                 "f3 - nai-diffusion-3-furry\n"
                 "4 - nai-diffusion-4-full\n"
-                "4.5 - nai-diffusion-4-5-full"
+                "4.5 - nai-diffusion-4-5-full\n"
+                "4.5p - nai-diffusion-4-5-curated-anlas-0 (Preview)"
             )
             return False, "无效的模型代号", True
 

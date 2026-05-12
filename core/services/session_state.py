@@ -14,7 +14,7 @@
 替代原来分散在各个 Command 类中的状态字典
 """
 import time
-from typing import Optional, Dict, List, Tuple, Callable, Any
+from typing import Any, Callable, Dict, List, Optional, Tuple
 from src.common.logger import get_logger
 
 logger = get_logger("nai_pic_plugin")
@@ -73,6 +73,12 @@ class SessionStateManager:
         # 上一轮自拍场景上下文（仅用于 bot 自拍/展示照连续性）
         # value = (prompt, request, scene_summary, anchor_data, timestamp)
         self._last_selfie_context: Dict[str, Tuple[str, str, str, Dict[str, List[str]], float]] = {}
+
+        # 最近一次自动出图时间（用于 Action 节流，避免连续频繁发图）
+        self._last_action_image_sent_at: Dict[str, float] = {}
+
+        # 当前仍在生成中的图片任务（用于拦截同会话重复启动）
+        self._pending_image_generation_started_at: Dict[str, float] = {}
 
     @staticmethod
     def _make_key(platform: str, chat_id: str) -> str:
@@ -134,7 +140,7 @@ class SessionStateManager:
         if not self.is_admin_mode_enabled(platform, chat_id, get_config):
             return True
 
-        admin_users = get_config("admin.admin_users", [])
+        admin_users = self._get_admin_users(get_config)
         if not admin_users:
             # 未配置管理员列表时，管理员模式不生效（与 is_admin_user 语义保持一致）
             return True
@@ -142,11 +148,18 @@ class SessionStateManager:
 
     def is_admin_user(self, user_id: str, get_config: Callable) -> bool:
         """检查用户是否是管理员"""
-        admin_users = get_config("admin.admin_users", [])
+        admin_users = self._get_admin_users(get_config)
         if not admin_users:
             # 未配置管理员列表时，默认允许所有人
             return True
         return str(user_id) in admin_users
+
+    def _get_admin_users(self, get_config: Callable) -> List[str]:
+        """获取标准化后的管理员 ID 列表。"""
+        admin_users = get_config("admin.admin_users", [])
+        if not isinstance(admin_users, list):
+            return []
+        return [str(user_id).strip() for user_id in admin_users if str(user_id).strip()]
 
     # ==================== 模型选择 ====================
 
@@ -532,6 +545,42 @@ class SessionStateManager:
             normalized_anchor_data,
             time.time(),
         )
+
+    # ==================== Action 最近出图时间 ====================
+
+    def get_last_action_image_sent_at(self, chat_stream_id: str) -> Optional[float]:
+        """获取指定聊天流最近一次自动出图成功发送时间。"""
+        if not chat_stream_id:
+            return None
+        return self._last_action_image_sent_at.get(chat_stream_id)
+
+    def set_last_action_image_sent_at(self, chat_stream_id: str, sent_at: Optional[float] = None) -> None:
+        """记录指定聊天流最近一次自动出图成功发送时间。"""
+        if not chat_stream_id:
+            return
+        timestamp = float(sent_at if sent_at is not None else time.time())
+        self._last_action_image_sent_at[chat_stream_id] = timestamp
+
+    # ==================== 图片生成中状态 ====================
+
+    def get_pending_image_generation_started_at(self, chat_stream_id: str) -> Optional[float]:
+        """获取指定聊天流当前生成中的图片任务开始时间。"""
+        if not chat_stream_id:
+            return None
+        return self._pending_image_generation_started_at.get(chat_stream_id)
+
+    def set_pending_image_generation(self, chat_stream_id: str, started_at: Optional[float] = None) -> None:
+        """标记指定聊天流存在进行中的图片任务。"""
+        if not chat_stream_id:
+            return
+        timestamp = float(started_at if started_at is not None else time.time())
+        self._pending_image_generation_started_at[chat_stream_id] = timestamp
+
+    def clear_pending_image_generation(self, chat_stream_id: str) -> None:
+        """清除指定聊天流的图片生成中状态。"""
+        if not chat_stream_id:
+            return
+        self._pending_image_generation_started_at.pop(chat_stream_id, None)
 
 
 # 全局单例实例

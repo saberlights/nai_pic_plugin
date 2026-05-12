@@ -1,7 +1,11 @@
-"""
-NovelAI Web 图片生成插件
-"""
+"""NovelAI Web 图片生成插件。"""
 
-from .plugin import NaiPicPlugin
+__all__ = ["NaiPicPlugin"]
 
-__all__ = ['NaiPicPlugin']
+
+def __getattr__(name: str):
+    if name == "NaiPicPlugin":
+        from .plugin import NaiPicPlugin
+
+        return NaiPicPlugin
+    raise AttributeError(name)

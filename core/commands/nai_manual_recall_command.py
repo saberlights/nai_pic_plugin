@@ -29,17 +29,26 @@ class NaiManualRecallCommand(BaseCommand, AutoRecallMixin):
     async def execute(self) -> Tuple[bool, Optional[str], bool]:
         logger.info(f"{self.log_prefix} [手动撤回] 收到 /nai 撤回")
 
-        resolved_id, placeholder_id, candidate_time = await self._get_last_message_candidate(
-            require_marker=True,
-            hours=24.0,
-            limit=300,
-            exclude_message_ids=self._get_recent_manual_recall_ids(),
-        )
+        try:
+            resolved_id, placeholder_id, candidate_time = await self._get_last_message_candidate(
+                require_marker=True,
+                hours=24.0,
+                limit=300,
+                exclude_message_ids=self._get_recent_manual_recall_ids(),
+            )
+        except Exception as exc:
+            logger.warning(f"{self.log_prefix} [手动撤回] 获取消息候选失败: {exc!r}")
+            resolved_id, placeholder_id, candidate_time = None, None, None
+
         if resolved_id:
             return await self._do_recall(resolved_id, "最近图片")
 
         if placeholder_id:
-            target_id = await self._resolve_latest_message_id(placeholder_id, target_send_timestamp=candidate_time)
+            try:
+                target_id = await self._resolve_latest_message_id(placeholder_id, target_send_timestamp=candidate_time)
+            except Exception as exc:
+                logger.warning(f"{self.log_prefix} [手动撤回] 解析消息ID失败: {exc!r}")
+                target_id = placeholder_id
             return await self._do_recall(target_id, "最近图片")
 
         await self.send_text(

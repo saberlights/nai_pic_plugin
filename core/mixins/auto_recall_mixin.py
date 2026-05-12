@@ -325,10 +325,14 @@ class AutoRecallMixin:
 
             context = self._get_recall_context()
             chat_stream = context.get("chat_stream")
-            stream_id = getattr(chat_stream, "stream_id", None) if chat_stream else None
+            # 兼容 BotChatSession（session_id）和其他可能的 chat_stream 类型（stream_id）
+            stream_id = (
+                getattr(chat_stream, "stream_id", None)
+                or getattr(chat_stream, "session_id", None)
+            ) if chat_stream else None
             if not stream_id:
                 logger.info(f"{self.log_prefix} 无法获取stream_id")
-                return None
+                return None, None, None
 
             platform = context.get("platform", "") or ""
             bot_account = _get_bot_account_for_platform(platform)
@@ -502,7 +506,7 @@ class AutoRecallMixin:
     async def _try_recall_message(self, message_id: str) -> bool:
         """尝试撤回消息"""
         try:
-            delete_commands = ["DELETE_MSG", "delete_msg", "RECALL_MSG", "recall_msg"]
+            delete_commands = ["delete_msg", "DELETE_MSG", "recall_msg", "RECALL_MSG"]
             for cmd in delete_commands:
                 try:
                     result = await self.send_command(

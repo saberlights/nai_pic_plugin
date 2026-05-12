@@ -38,6 +38,82 @@ _CAMERA_TAGS = {
     "holding phone",
 }
 
+_SFW_BANNED_EXACT_TAGS = {
+    "nsfw",
+    "nude",
+    "naked",
+    "sex",
+    "sexual",
+    "sexy",
+    "suggestive",
+    "seductive",
+    "lewd",
+    "erotic",
+    "explicit",
+    "penis",
+    "pussy",
+    "vagina",
+    "nipples",
+    "nipple",
+    "anus",
+    "anal",
+    "penetration",
+    "cum",
+    "ejaculation",
+    "fellatio",
+    "cunnilingus",
+    "paizuri",
+    "footjob",
+    "handjob",
+    "masturbation",
+    "orgasm",
+    "topless",
+    "bottomless",
+    "cameltoe",
+    "cleavage",
+    "underboob",
+    "sideboob",
+    "thighs",
+    "midriff",
+    "lingerie",
+    "bikini",
+    "swimsuit",
+    "panties",
+    "underwear",
+    "thong",
+    "bra",
+    "no bra",
+    "see-through",
+    "see through",
+    "transparent clothes",
+}
+_SFW_BANNED_SUBSTRINGS = (
+    "bikini",
+    "swimsuit",
+    "lingerie",
+    "panties",
+    "underwear",
+    "thong",
+    "cameltoe",
+    "cleavage",
+    "underboob",
+    "sideboob",
+    "see-through",
+    "see through",
+    "transparent",
+    "covered nipples",
+    "no bra",
+    "bra lift",
+    "pussy juice",
+    "grop",
+    "fondl",
+    "fingering",
+    "fingered",
+    "grabbing breast",
+    "breast grab",
+    "biting neck",
+)
+
 
 def _split_prompt_segments(prompt: str) -> List[str]:
     """兼容旧的多行 `|` 分段和新的单行 `base | char1 | char2` 格式。"""
@@ -82,6 +158,14 @@ def _join_prompt_segments(lines: List[str], original_prompt: str) -> str:
         return " | ".join([part for part in normalized if part]).strip()
 
     return "\n".join(lines).strip()
+
+
+def _preserve_trailing_comma(rendered_line: str, raw_line: str) -> str:
+    """保留结构化多人提示词每行末尾的续接逗号。"""
+    line = rendered_line.strip()
+    if line and raw_line.rstrip().endswith(",") and not line.endswith(","):
+        return f"{line},"
+    return line
 
 
 def user_mentions_appearance(raw_request: str) -> bool:
@@ -196,6 +280,7 @@ def remove_selfie_appearance_tags(prompt: str) -> str:
         raw = line.strip()
         if not raw:
             continue
+        raw_line = raw
 
         prefix = ""
         if raw.startswith("|"):
@@ -205,11 +290,63 @@ def remove_selfie_appearance_tags(prompt: str) -> str:
         tags = [t.strip() for t in raw.split(",") if t.strip()]
         filtered = [t for t in tags if not should_remove(t)]
 
-        joined = ", ".join(filtered)
+        joined = _preserve_trailing_comma(", ".join(filtered), raw_line)
         if prefix:
             out_lines.append(f"{prefix} {joined}".strip())
         else:
             out_lines.append(joined)
+
+    return _join_prompt_segments(out_lines, prompt)
+
+
+def sanitize_sfw_prompt(prompt: str) -> str:
+    """移除 SFW 模式下不应出现的擦边/色情标签。"""
+    if not prompt or not prompt.strip():
+        return prompt
+
+    def is_forbidden(tag: str) -> bool:
+        core = _strip_wrappers(tag).lower()
+        core = re.sub(r"\s+", " ", core).strip()
+        core = re.sub(r"^(?:source|target|mutual)#", "", core).strip()
+        if not core:
+            return False
+
+        if core in _SFW_BANNED_EXACT_TAGS:
+            return True
+
+        return any(token in core for token in _SFW_BANNED_SUBSTRINGS)
+
+    lines = _split_prompt_segments(prompt)
+    out_lines: List[str] = []
+    for line in lines:
+        raw = line.strip()
+        if not raw:
+            continue
+        raw_line = raw
+
+        prefix = ""
+        if raw.startswith("|"):
+            prefix = "|"
+            raw = raw[1:].strip()
+
+        role_prefix = ""
+        role_match = re.match(r"^(char\d+:)\s*(.*)$", raw, re.IGNORECASE)
+        if role_match:
+            role_prefix = role_match.group(1)
+            raw = role_match.group(2)
+
+        tags = [t.strip() for t in raw.split(",") if t.strip()]
+        filtered = [t for t in tags if not is_forbidden(t)]
+        if not filtered:
+            continue
+
+        joined = ", ".join(filtered)
+        joined = _preserve_trailing_comma(joined, raw_line)
+        rebuilt = f"{role_prefix}{joined}" if role_prefix else joined
+        if prefix:
+            out_lines.append(f"{prefix} {rebuilt}".strip())
+        else:
+            out_lines.append(rebuilt)
 
     return _join_prompt_segments(out_lines, prompt)
 
@@ -230,6 +367,7 @@ def normalize_prompt_order(prompt: str) -> str:
         raw = line.strip()
         if not raw:
             continue
+        raw_line = raw
 
         prefix = ""
         if raw.startswith("|"):
@@ -261,7 +399,7 @@ def normalize_prompt_order(prompt: str) -> str:
         # 视角类标签通常比 1girl/1boy 更“前置有效”，所以输出时把 camera 放在 count 之前
         # 但保留原始相对顺序（分别在各自组内稳定）
         new_tags = cameras + counts + rest + years
-        joined = ", ".join(new_tags).strip()
+        joined = _preserve_trailing_comma(", ".join(new_tags).strip(), raw_line)
         if prefix:
             out_lines.append(f"{prefix} {joined}".strip())
         else:
