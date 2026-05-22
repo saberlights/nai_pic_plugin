@@ -245,7 +245,10 @@ def test_send_image_result_skips_direct_send_for_generation_url_and_uses_local_f
         storage_message: bool = True,
     ) -> bool:
         send_calls.append((message_type, content, display_message))
-        return content == "file:///tmp/fallback.png"
+        # 模拟未知平台直发 base64 抛异常，触发回退到本地文件 URL
+        if message_type == "image":
+            raise RuntimeError("simulated direct image dispatch error")
+        return True
 
     async def fake_send_text(text: str, storage_message: bool = True) -> bool:
         sent_texts.append(text)
@@ -458,9 +461,14 @@ def test_manual_recall_skips_stale_images_without_attempting_recall(
     assert sent_texts == ["❌ 找不到近期可撤回的图片（图片可能已超过平台撤回时限）"]
 
 
-def test_send_base64_image_result_falls_back_to_image_when_file_send_fails(
+def test_send_base64_image_result_does_not_fall_back_when_unknown_platform_image_send_returns_false(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """未知平台分支：image(base64) 直发返回 False 不应再尝试 imageurl(file://)。
+
+    Platform IO 在 send_custom 报 False 时仍可能已实际派发，二次发送会重复。
+    只有抛异常或没有可用文件路径时才尝试另一种格式。
+    """
     invocation = _build_image_send_invocation()
     send_calls: list[tuple[str, str]] = []
 
@@ -472,7 +480,7 @@ def test_send_base64_image_result_falls_back_to_image_when_file_send_fails(
         storage_message: bool = True,
     ) -> bool:
         send_calls.append((message_type, content))
-        return message_type == "image"
+        return False
 
     monkeypatch.setattr(sdk_runtime_module, "save_base64_image_to_file", lambda _data: "/tmp/fallback.png")
 
@@ -481,13 +489,14 @@ def test_send_base64_image_result_falls_back_to_image_when_file_send_fails(
 
     result = asyncio.run(invocation._send_base64_image_result("iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB", "[nai-image]"))
 
-    assert result is True
+    assert result is False
     assert send_calls == [("image", "iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB")]
 
 
-def test_send_base64_image_result_unknown_platform_falls_back_to_file_then_image(
+def test_send_base64_image_result_unknown_platform_falls_back_to_file_when_direct_image_raises(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """未知平台分支：image(base64) 抛异常时回退为 imageurl(file://)。"""
     invocation = _build_image_send_invocation()
     send_calls: list[tuple[str, str]] = []
 
@@ -500,8 +509,8 @@ def test_send_base64_image_result_unknown_platform_falls_back_to_file_then_image
     ) -> bool:
         send_calls.append((message_type, content))
         if message_type == "image":
-            return False
-        return message_type == "imageurl"
+            raise RuntimeError("simulated dispatch error")
+        return True
 
     monkeypatch.setattr(sdk_runtime_module, "save_base64_image_to_file", lambda _data: "/tmp/fallback.png")
 
@@ -548,9 +557,14 @@ def test_send_base64_image_result_uses_local_file_for_qq(
     assert send_calls == [("imageurl", "file:///tmp/fallback.png")]
 
 
-def test_send_base64_image_result_qq_falls_back_to_direct_image_when_file_send_fails(
+def test_send_base64_image_result_qq_does_not_fall_back_when_file_send_returns_false(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """QQ 分支：imageurl(file://) 返回 False 不应再以 image(base64) 重发。
+
+    Platform IO 在 send_custom 报 False 时仍可能已实际派发，二次发送会让
+    用户在群里看到同一张图重复出现。只有保存失败或抛异常时才尝试 base64。
+    """
     invocation = _build_image_send_invocation()
     send_calls: list[tuple[str, str]] = []
 
@@ -562,7 +576,37 @@ def test_send_base64_image_result_qq_falls_back_to_direct_image_when_file_send_f
         storage_message: bool = True,
     ) -> bool:
         send_calls.append((message_type, content))
-        return message_type == "image"
+        return False
+
+    monkeypatch.setattr(sdk_runtime_module, "save_base64_image_to_file", lambda _data: "/tmp/fallback.png")
+
+    invocation.send_custom = fake_send_custom
+    invocation._get_target_platform = lambda: "qq"
+
+    result = asyncio.run(invocation._send_base64_image_result("iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB", "[nai-image]"))
+
+    assert result is False
+    assert send_calls == [("imageurl", "file:///tmp/fallback.png")]
+
+
+def test_send_base64_image_result_qq_falls_back_to_direct_image_when_file_send_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """QQ 分支：imageurl(file://) 抛异常时回退到 image(base64)。"""
+    invocation = _build_image_send_invocation()
+    send_calls: list[tuple[str, str]] = []
+
+    async def fake_send_custom(
+        message_type: str,
+        content: str,
+        *,
+        display_message: str = "",
+        storage_message: bool = True,
+    ) -> bool:
+        send_calls.append((message_type, content))
+        if message_type == "imageurl":
+            raise RuntimeError("simulated dispatch error")
+        return True
 
     monkeypatch.setattr(sdk_runtime_module, "save_base64_image_to_file", lambda _data: "/tmp/fallback.png")
 
@@ -576,6 +620,34 @@ def test_send_base64_image_result_qq_falls_back_to_direct_image_when_file_send_f
         ("imageurl", "file:///tmp/fallback.png"),
         ("image", "iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB"),
     ]
+
+
+def test_send_base64_image_result_qq_falls_back_to_direct_image_when_save_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """QQ 分支：base64 保存失败时直接发送 image(base64)。"""
+    invocation = _build_image_send_invocation()
+    send_calls: list[tuple[str, str]] = []
+
+    async def fake_send_custom(
+        message_type: str,
+        content: str,
+        *,
+        display_message: str = "",
+        storage_message: bool = True,
+    ) -> bool:
+        send_calls.append((message_type, content))
+        return True
+
+    monkeypatch.setattr(sdk_runtime_module, "save_base64_image_to_file", lambda _data: None)
+
+    invocation.send_custom = fake_send_custom
+    invocation._get_target_platform = lambda: "qq"
+
+    result = asyncio.run(invocation._send_base64_image_result("iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB", "[nai-image]"))
+
+    assert result is True
+    assert send_calls == [("image", "iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB")]
 
 
 def test_download_remote_image_as_base64_uses_client_request_settings(

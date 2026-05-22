@@ -75,11 +75,11 @@ NSFW 标记 → 人数 → 视角/构图 → 角色名 → 核心外观 → 服�
 - 现代二次元人物插画 → `global` 必须包含 `year 2024` 或 `year 2025`
 - 例外：用户明确指定年代、要求复古风格、题材明显不适合年份时可不加
 
-### 5. 已知角色 / 自拍场景的外貌强约束
+### 5. 已知角色 / 自拍 / 肖像场景的外貌强约束
 
 满足以下任一条件，且用户**未明确指定**外貌时，**禁止输出发色/发型/瞳色 tag**：
 - 输出中含已知角色 tag（形如 `name (series)`）
-- 用户请求触发自拍（`<<SELFIE_HINT>>` 出现）
+- 用户请求触发自拍或肖像（`<<SELFIE_HINT>>` 出现，输出含 `selfie` / `mirror selfie` / `group selfie` / `portrait photo` / `candid photo` / `upper body portrait` / `full body portrait`）
 
 被禁止的具体 tag 类型：
 hair / haired / long hair / short hair / medium hair / eyes / eyed / bangs / twintails / ponytail / braid / bun / bob cut / hime cut 等。

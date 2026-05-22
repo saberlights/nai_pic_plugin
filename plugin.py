@@ -994,9 +994,8 @@ class NaiPicPlugin(MaiBotPlugin):
         stream_id: str,
         coroutine_factory: Any,
     ) -> bool:
-        """为显式生图命令复用会话级去重，避免同一请求被并发执行两次。"""
-        if not self._start_image_generation_in_background(stream_id, coroutine_factory):
-            return False
+        """后台执行显式生图命令，允许同会话内并发处理多个用户请求。"""
+        self._run_invocation_in_background(coroutine_factory())
 
         if stream_id:
             await self.ctx.send.text("收到，正在生成图片，请稍候...", stream_id, storage_message=False)

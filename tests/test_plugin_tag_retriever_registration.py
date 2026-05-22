@@ -202,7 +202,7 @@ class _DummyInvocation:
         return True, tags, True
 
 
-def test_handle_nai_draw_reuses_pending_guard(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_handle_nai_draw_allows_multiple_commands_in_same_stream(monkeypatch: pytest.MonkeyPatch) -> None:
     plugin = object.__new__(NaiPicPlugin)
     plugin.ctx = types.SimpleNamespace(send=_DummySend())
 
@@ -211,17 +211,16 @@ def test_handle_nai_draw_reuses_pending_guard(monkeypatch: pytest.MonkeyPatch) -
     async def fake_create_invocation(*args: Any, **kwargs: Any) -> _DummyInvocation:
         return invocation
 
-    started_calls: list[tuple[str, object]] = []
+    started_coroutines: list[object] = []
 
-    async def fake_start_command_image_generation(stream_id: str, coroutine_factory: object) -> bool:
-        started_calls.append((stream_id, coroutine_factory))
-        if len(started_calls) == 1:
-            await plugin.ctx.send.text("收到，正在生成图片，请稍候...", stream_id, storage_message=False)
-            return True
-        return False
+    def fake_run_invocation_in_background(coroutine: object) -> None:
+        started_coroutines.append(coroutine)
+        close = getattr(coroutine, "close", None)
+        if callable(close):
+            close()
 
     monkeypatch.setattr(plugin, "_create_invocation", fake_create_invocation)
-    monkeypatch.setattr(plugin, "_start_command_image_generation", fake_start_command_image_generation)
+    monkeypatch.setattr(plugin, "_run_invocation_in_background", fake_run_invocation_in_background)
 
     async def _run() -> tuple[tuple[bool, str | None, bool], tuple[bool, str | None, bool]]:
         first = await plugin.handle_nai_draw(
@@ -237,15 +236,15 @@ def test_handle_nai_draw_reuses_pending_guard(monkeypatch: pytest.MonkeyPatch) -
     first, second = asyncio.run(_run())
 
     assert first == (True, "已开始生成图片", True)
-    assert second == (False, "", True)
-    assert len(started_calls) == 2
-    assert callable(started_calls[0][1])
+    assert second == (True, "已开始生成图片", True)
+    assert len(started_coroutines) == 2
     assert plugin.ctx.send.text_calls == [
+        ("收到，正在生成图片，请稍候...", "stream-1", False),
         ("收到，正在生成图片，请稍候...", "stream-1", False),
     ]
 
 
-def test_handle_nai0_draw_reuses_pending_guard(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_handle_nai0_draw_allows_multiple_commands_in_same_stream(monkeypatch: pytest.MonkeyPatch) -> None:
     plugin = object.__new__(NaiPicPlugin)
     plugin.ctx = types.SimpleNamespace(send=_DummySend())
 
@@ -254,17 +253,16 @@ def test_handle_nai0_draw_reuses_pending_guard(monkeypatch: pytest.MonkeyPatch) 
     async def fake_create_invocation(*args: Any, **kwargs: Any) -> _DummyInvocation:
         return invocation
 
-    started_calls: list[tuple[str, object]] = []
+    started_coroutines: list[object] = []
 
-    async def fake_start_command_image_generation(stream_id: str, coroutine_factory: object) -> bool:
-        started_calls.append((stream_id, coroutine_factory))
-        if len(started_calls) == 1:
-            await plugin.ctx.send.text("收到，正在生成图片，请稍候...", stream_id, storage_message=False)
-            return True
-        return False
+    def fake_run_invocation_in_background(coroutine: object) -> None:
+        started_coroutines.append(coroutine)
+        close = getattr(coroutine, "close", None)
+        if callable(close):
+            close()
 
     monkeypatch.setattr(plugin, "_create_invocation", fake_create_invocation)
-    monkeypatch.setattr(plugin, "_start_command_image_generation", fake_start_command_image_generation)
+    monkeypatch.setattr(plugin, "_run_invocation_in_background", fake_run_invocation_in_background)
 
     async def _run() -> tuple[tuple[bool, str | None, bool], tuple[bool, str | None, bool]]:
         first = await plugin.handle_nai_0_draw(
@@ -280,9 +278,39 @@ def test_handle_nai0_draw_reuses_pending_guard(monkeypatch: pytest.MonkeyPatch) 
     first, second = asyncio.run(_run())
 
     assert first == (True, "已开始生成图片", True)
-    assert second == (False, "", True)
-    assert len(started_calls) == 2
-    assert callable(started_calls[0][1])
+    assert second == (True, "已开始生成图片", True)
+    assert len(started_coroutines) == 2
     assert plugin.ctx.send.text_calls == [
         ("收到，正在生成图片，请稍候...", "stream-2", False),
+        ("收到，正在生成图片，请稍候...", "stream-2", False),
     ]
+
+
+def test_start_image_generation_in_background_still_blocks_duplicate_action_stream() -> None:
+    plugin = object.__new__(NaiPicPlugin)
+    plugin._tasks = set()
+    stream_id = "stream-action-guard"
+    session_state = plugin_module.session_state
+    session_state.clear_pending_image_generation(stream_id)
+
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def fake_generation() -> None:
+        started.set()
+        await release.wait()
+
+    async def _run() -> tuple[bool, bool]:
+        first = plugin._start_image_generation_in_background(stream_id, lambda: fake_generation())
+        second = plugin._start_image_generation_in_background(stream_id, lambda: fake_generation())
+        assert session_state.get_pending_image_generation_started_at(stream_id) is not None
+        await started.wait()
+        release.set()
+        await asyncio.sleep(0)
+        return first, second
+
+    first, second = asyncio.run(_run())
+
+    assert first is True
+    assert second is False
+    assert session_state.get_pending_image_generation_started_at(stream_id) is None
